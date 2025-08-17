@@ -1294,7 +1294,6 @@ class Game {
 
         const allTargets = [...this.bots, ...this.playerCells];
         
-        // Tier 3 Beam Logic
         if (level === 3 && this.siphonedMass >= stats.beamThreshold) {
             this.beamEffect = {
                 life: 15,
@@ -1316,7 +1315,7 @@ class Game {
                 }
             });
 
-        } else { // Normal Blast Logic
+        } else { 
             allTargets.forEach(target => {
                 if (this.playerCells.includes(target)) return;
                 
@@ -1512,13 +1511,12 @@ class Game {
     
     removeCell(cellToRemove) {
         if (cellToRemove instanceof BotCell) {
-            if (cellToRemove.isWebbed) {
-                for (const web of this.webs) {
-                    if (web.webbedBots.has(cellToRemove)) {
-                        web.paintCreep(cellToRemove, this.creepCtx, true);
-                        break;
-                    }
-                }
+            // **FIX**: If the bot's creep was fully painted, erase it from the canvas.
+            if (cellToRemove.isWebbed && cellToRemove.creepIsPainted) {
+                // Create a temporary web object to call the paintCreep utility.
+                // This is more robust than relying on finding the original web.
+                const tempWeb = new Web(cellToRemove, 1);
+                tempWeb.paintCreep(cellToRemove, this.creepCtx, true);
             }
             const botIndex = this.bots.indexOf(cellToRemove);
             if (botIndex > -1) {
