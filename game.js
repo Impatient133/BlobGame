@@ -281,62 +281,10 @@ class BotCell extends Cell {
     }
 
     getClosest(targets, property = 'dist') {
+        if (!targets || targets.length === 0) return null;
         return targets.reduce((closest, current) => (current[property] < closest[property] ? current : closest), targets[0]);
     }
     
-    // --- REVISED AI BEHAVIOR ---
-    // This logic prevents bots from getting stuck on edges OR orbiting central players.
-    // It evaluates several escape paths and invalidates any that lead too close to a wall.
-    // It then picks the best valid path, preferring to strafe if running straight is not an option.
-    findBestFleeTarget(threat, visionRange) {
-        const fleeVecX = this.x - threat.x;
-        const fleeVecY = this.y - threat.y;
-        const dist = Math.hypot(fleeVecX, fleeVecY);
-
-        if (dist === 0) return { x: this.x, y: this.y };
-
-        const normX = fleeVecX / dist;
-        const normY = fleeVecY / dist;
-
-        const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]; // Straight, diagonals, sideways
-        let bestScore = -Infinity;
-        let bestTarget = null;
-
-        const fleeDistance = visionRange * 0.75; // How far to set the target point
-        const edgePadding = 200; // How far to stay away from walls
-
-        for (const angle of angles) {
-            const rotX = normX * Math.cos(angle) - normY * Math.sin(angle);
-            const rotY = normX * Math.sin(angle) + normY * Math.cos(angle);
-
-            const target = {
-                x: this.x + rotX * fleeDistance,
-                y: this.y + rotY * fleeDistance
-            };
-
-            // If the target is too close to an edge, it's a bad path.
-            if (target.x < edgePadding || target.x > WORLD_WIDTH - edgePadding ||
-                target.y < edgePadding || target.y > WORLD_HEIGHT - edgePadding) {
-                continue; // Skip this angle
-            }
-
-            // A good score is simply being far from the threat.
-            const score = Math.hypot(target.x - threat.x, target.y - threat.y);
-
-            if (score > bestScore) {
-                bestScore = score;
-                bestTarget = target;
-            }
-        }
-        
-        // If all paths were invalid (e.g., cornered), just flee directly as a last resort.
-        if (!bestTarget) {
-            bestTarget = { x: this.x + normX * fleeDistance, y: this.y + normY * fleeDistance };
-        }
-        
-        return bestTarget;
-    }
-
     runTimidAi(allCells, food, visionRange) {
         const threats = allCells
             .filter(c => c !== this && c.mass > this.mass * 1.1)
@@ -345,9 +293,9 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            const bestTarget = this.findBestFleeTarget(closestThreat, visionRange);
-            this.targetX = bestTarget.x;
-            this.targetY = bestTarget.y;
+            // --- AI REVERTED TO ORIGINAL STATE ---
+            this.targetX = this.x + (this.x - closestThreat.x);
+            this.targetY = this.y + (this.y - closestThreat.y);
             return;
         }
 
@@ -388,9 +336,9 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            const bestTarget = this.findBestFleeTarget(closestThreat, visionRange);
-            this.targetX = bestTarget.x;
-            this.targetY = bestTarget.y;
+            // --- AI REVERTED TO ORIGINAL STATE ---
+            this.targetX = this.x + (this.x - closestThreat.x);
+            this.targetY = this.y + (this.y - closestThreat.y);
             return;
         }
         
@@ -405,9 +353,9 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            const bestTarget = this.findBestFleeTarget(closestThreat, visionRange);
-            this.targetX = bestTarget.x;
-            this.targetY = bestTarget.y;
+            // --- AI REVERTED TO ORIGINAL STATE ---
+            this.targetX = this.x + (this.x - closestThreat.x);
+            this.targetY = this.y + (this.y - closestThreat.y);
             return;
         }
 
