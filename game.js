@@ -94,8 +94,8 @@ const ABILITY_STATS = {
         'description': 'Spend mass to spawn an employee bot that gathers food for you.',
         'tiers': [
             {'desc': 'Max 3 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 3, 'max_trips': 2, 'capacity': 25, 'cooldown': 2 * 60},
-            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 4, 'capacity': 35, 'cooldown': 2 * 60},
-            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 6, 'capacity': 50, 'cooldown': 2 * 60},
+            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 3, 'capacity': 35, 'cooldown': 2 * 60},
+            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 4, 'capacity': 50, 'cooldown': 2 * 60},
         ]
     },
     'regroup': {
@@ -2006,3 +2006,4 @@ window.addEventListener('load', () => {
         game.run();
     });
 });
+
