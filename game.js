@@ -97,7 +97,7 @@ const ABILITY_STATS = {
         'tiers': [
             {'desc': 'Unleash a short-range blast (1.5x damage).', 'multiplier': 1.5, 'siphonRange': 400, 'siphonCone': Math.PI / 6, 'blastRange': 300, 'blastCone': Math.PI / 5},
             {'desc': 'Blast has wider AoE and increased range (2.5x damage).', 'multiplier': 2.5, 'siphonRange': 550, 'siphonCone': Math.PI / 4, 'blastRange': 450, 'blastCone': Math.PI / 3},
-            {'desc': 'Greatly increases AoE. High charge fires a BEAM (3.5x damage).', 'multiplier': 3.5, 'siphonRange': 700, 'siphonCone': Math.PI / 3, 'blastRange': 600, 'blastCone': Math.PI / 2.5, 'beamThreshold': 100, 'beamWidth': 50},
+            {'desc': 'Greatly increases AoE. High charge fires a BEAM (3.0x damage).', 'multiplier': 3.0, 'siphonRange': 700, 'siphonCone': Math.PI / 3, 'blastRange': 600, 'blastCone': Math.PI / 2.5, 'beamThreshold': 100, 'beamWidth': 50},
         ]
     },
     'regroup': {
@@ -1096,7 +1096,6 @@ class Game {
             this.beamEffect.life--;
         }
 
-        // Update timers
         if (this.warningTimer > 0) this.warningTimer--;
         for (const key in this.abilityCooldowns) {
             if (this.abilityCooldowns[key] > 0) {
@@ -1146,13 +1145,15 @@ class Game {
             }
         });
         
-        const botsToPurge = this.bots.filter(b => b.mass <= 1);
-        botsToPurge.forEach(bot => this.removeCell(bot));
-        this.bots = this.bots.filter(b => b.mass > 1);
+        const deadBots = this.bots.filter(b => b.mass <= 1);
+        if (deadBots.length > 0) {
+            deadBots.forEach(bot => this.removeCell(bot));
+        }
 
         const foodCountBefore = this.food.length;
-        this.food = this.food.filter(f => f.mass > 1);
-        const foodEatenByPurge = foodCountBefore - this.food.length;
+        const survivingFood = this.food.filter(f => f.mass > 1);
+        const foodEatenByPurge = foodCountBefore - survivingFood.length;
+        this.food = survivingFood;
         for (let i = 0; i < foodEatenByPurge; i++) {
              this.food.push(new Food(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT));
         }
@@ -1168,9 +1169,7 @@ class Game {
         for (const eater of allEaters) {
             for (const consumable of [...this.food, ...this.ejectedMass, ...this.targetedMass]) {
                 if (eatenThisFrame.has(consumable)) continue;
-                
                 if (eater instanceof PlayerCell && consumable instanceof TargetedMass && !(consumable instanceof ReformMass) && consumable.playerEatCooldown > 0) continue;
-                
                 if (eater instanceof BotCell && consumable instanceof SiphonedFood) continue;
 
                 if (this.checkEat(eater, consumable)) {
@@ -1300,7 +1299,7 @@ class Game {
             this.beamEffect = {
                 life: 15,
                 x1: playerCell.x, y1: playerCell.y,
-                x2: playerCell.x + Math.cos(angleToMouse) * WORLD_WIDTH, // Make it super long
+                x2: playerCell.x + Math.cos(angleToMouse) * WORLD_WIDTH,
                 y2: playerCell.y + Math.sin(angleToMouse) * WORLD_WIDTH,
                 width: stats.beamWidth
             };
@@ -1308,15 +1307,12 @@ class Game {
             allTargets.forEach(target => {
                 if (this.playerCells.includes(target)) return;
 
-                // Simple line-segment vs circle collision
                 const distToLine = Math.abs((this.beamEffect.y2 - this.beamEffect.y1) * target.x - (this.beamEffect.x2 - this.beamEffect.x1) * target.y + this.beamEffect.x2 * this.beamEffect.y1 - this.beamEffect.y2 * this.beamEffect.x1) / Math.hypot(this.beamEffect.y2 - this.beamEffect.y1, this.beamEffect.x2 - this.beamEffect.x1);
                 const dot = (target.x - playerCell.x) * dx + (target.y - playerCell.y) * dy;
 
                 if (distToLine < target.radius + stats.beamWidth / 2 && dot > 0) {
                     target.mass -= damage;
-                     if (target.mass < 1 && target instanceof BotCell) {
-                        this.removeCell(target);
-                    }
+                     if (target.mass < 1) { this.removeCell(target); }
                 }
             });
 
@@ -1332,13 +1328,10 @@ class Game {
 
                     if (angleDiff < stats.blastCone / 2) {
                         target.mass -= damage;
-                         if (target.mass < 1 && target instanceof BotCell) {
-                            this.removeCell(target);
-                        }
+                         if (target.mass < 1) { this.removeCell(target); }
                     }
                 }
             });
-            // Visuals for blast
              for (let i = 0; i < Math.min(100, this.siphonedMass); i++) {
                 const angle = angleToMouse + randomInRange(-stats.blastCone / 2, stats.blastCone / 2);
                 const speed = randomInRange(2, 10);
@@ -1400,7 +1393,6 @@ class Game {
             this.foodSpawnTimer--;
             if (this.foodSpawnTimer <= 0) {
                 this.foodSpawnTimer = FOOD_CHEAT_SPAWN_RATE;
-                // Add a new food pellet, with a cap to prevent lag
                 if (this.food.length < FOOD_COUNT * 2) {
                      this.food.push(new Food(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT));
                 }
@@ -1601,15 +1593,22 @@ class Game {
             const { screenX: x2, screenY: y2 } = this.camera.worldToScreen(this.beamEffect.x2, this.beamEffect.y2);
             const width = this.beamEffect.width * this.camera.zoom * (this.beamEffect.life / 15);
             
+            ctx.lineCap = 'round';
+            
+            // Outer Glow
             ctx.beginPath();
             ctx.moveTo(x1, y1);
             ctx.lineTo(x2, y2);
-            ctx.strokeStyle = `rgba(137, 207, 240, ${0.1 + (this.beamEffect.life / 15) * 0.9})`;
+            ctx.strokeStyle = `rgba(137, 207, 240, ${0.1 + (this.beamEffect.life / 15) * 0.7})`;
             ctx.lineWidth = width;
-            ctx.lineCap = 'round';
             ctx.stroke();
+            
+            // Inner Core
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
             ctx.lineWidth = width / 2;
-            ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 + (this.beamEffect.life / 15) * 0.9})`;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 + (this.beamEffect.life / 15) * 0.8})`;
             ctx.stroke();
         }
 
