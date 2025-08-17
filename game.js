@@ -501,8 +501,9 @@ class EmployeeBot extends Cell {
             for (const threat of threats) {
                 const awayX = this.x - threat.cell.x;
                 const awayY = this.y - threat.cell.y;
-                fleeVector.x += awayX / (threat.dist * threat.dist);
-                fleeVector.y += awayY / (threat.dist * threat.dist);
+                const inverseSquare = 1 / (threat.dist * threat.dist);
+                fleeVector.x += awayX * inverseSquare;
+                fleeVector.y += awayY * inverseSquare;
             }
         }
 
@@ -638,6 +639,10 @@ class TargetedMass extends Cell {
 }
 
 class CoalescingMass extends TargetedMass {
+    constructor(x, y, mass, color, targetCell) {
+        super(x, y, mass, color, targetCell);
+        this.playerEatCooldown = 0;
+    }
     update() {
         if (this.target) {
             const dx = this.target.x - this.x;
@@ -661,6 +666,11 @@ class CoalescingMass extends TargetedMass {
 
 
 class ReformMass extends TargetedMass {
+     constructor(x, y, mass, color, targetCell) {
+        super(x, y, mass, color, targetCell);
+        this.playerEatCooldown = 0; // Make it immediately edible by player
+    }
+
     update() {
         if (this.target && this.target.mass > 0) {
             const dx = this.target.x - this.x;
