@@ -1003,6 +1003,13 @@ class Game {
             if (key === 'r') this.activateMassPurge();
             if (key === 'q') this.feedCheatActive = !this.feedCheatActive;
             if (key === 'u') this.upgradeMenuOpen = true;
+            if (key === 'z') { // New cheat code
+                const abilityKeys = Object.keys(this.abilityLevels);
+                for (const abilityKey of abilityKeys) {
+                    this.abilityLevels[abilityKey] = 3;
+                }
+                this.showWarning("Cheats Activated: All abilities maxed!");
+            }
         }
     }
     
@@ -1142,7 +1149,7 @@ class Game {
 
         this.updateFeedCheat();
         this.updateBotSpawning();
-        this.updateFoodSpawning(); // Handle cheat food spawning
+        this.updateFoodSpawning();
         this.updateSiphon();
 
         if (this.ejectCooldown > 0) this.ejectCooldown--;
@@ -1199,9 +1206,12 @@ class Game {
         for (const eater of allEaters) {
             for (const consumable of [...this.food, ...this.ejectedMass, ...this.targetedMass]) {
                 if (eatenThisFrame.has(consumable)) continue;
-                if (eater instanceof PlayerCell && consumable instanceof TargetedMass && !(consumable instanceof ReformMass) && consumable.playerEatCooldown > 0) {
-                    continue;
-                }
+                
+                if (eater instanceof PlayerCell && consumable instanceof TargetedMass && !(consumable instanceof ReformMass) && consumable.playerEatCooldown > 0) continue;
+                
+                // **FIX**: Prevent bots from eating siphoned food particles
+                if (eater instanceof BotCell && consumable instanceof SiphonedFood) continue;
+
                 if (this.checkEat(eater, consumable)) {
                     if (consumable instanceof SiphonedFood && eater instanceof PlayerCell) {
                          this.siphonedMass += consumable.mass;
@@ -1324,7 +1334,6 @@ class Game {
             const index = this.food.indexOf(food);
             if (index > -1) {
                 this.food.splice(index, 1);
-                // **FIX**: Respawn siphoned food immediately
                 this.food.push(new Food(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT));
                 this.targetedMass.push(new SiphonedFood(food.x, food.y, food.mass, SIPHON_COLOR, playerCell));
             }
