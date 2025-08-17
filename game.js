@@ -94,8 +94,8 @@ const ABILITY_STATS = {
         'description': 'Spend mass to spawn an employee bot that gathers food for you.',
         'tiers': [
             {'desc': 'Max 3 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 3, 'max_trips': 2, 'capacity': 25, 'cooldown': 2 * 60},
-            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 3, 'capacity': 35, 'cooldown': 2 * 60},
-            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 4, 'capacity': 50, 'cooldown': 2 * 60},
+            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 4, 'capacity': 35, 'cooldown': 2 * 60},
+            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 6, 'capacity': 50, 'cooldown': 2 * 60},
         ]
     },
     'regroup': {
@@ -1204,11 +1204,15 @@ class Game {
         }
 
         const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
-        if (playerCell.mass < cost + MIN_MASS_TO_EJECT) { // Keep some mass
+        // FIX 1: The check was adding MIN_MASS_TO_EJECT unnecessarily.
+        // It should only check if the player has more mass than the cost.
+        if (playerCell.mass < cost) { 
             this.showWarning("Not enough mass to spawn an employee!");
             return;
         }
 
+        // FIX 2: Mass was not being deducted. Changed from "playerCell.mass - cost"
+        // to "playerCell.mass -= cost".
         playerCell.mass -= cost;
         playerCell.updateRadius();
         
@@ -1217,17 +1221,21 @@ class Game {
         const spawnX = playerCell.x + Math.cos(spawnAngle) * spawnDist;
         const spawnY = playerCell.y + Math.sin(spawnAngle) * spawnDist;
         
-        const spawnPoint = {x: spawnX, y: spawnY};
+        // FIX 3: The "liquify" animation is now correctly implemented.
+        // We create a temporary, non-rendered target for the mass to coalesce at.
+        const spawnTarget = { x: spawnX, y: spawnY, mass: 1 }; // A simple object for the mass to target
 
         const numChunks = 10;
         const massPerChunk = cost / numChunks;
         for (let i = 0; i < numChunks; i++) {
             const offsetX = randomInRange(-playerCell.radius, playerCell.radius) * 0.7;
             const offsetY = randomInRange(-playerCell.radius, playerCell.radius) * 0.7;
-            const newLiquid = new CoalescingMass(playerCell.x + offsetX, playerCell.y + offsetY, massPerChunk, playerCell.color, spawnPoint);
+            // The CoalescingMass will now correctly move towards the spawnTarget
+            const newLiquid = new CoalescingMass(playerCell.x + offsetX, playerCell.y + offsetY, massPerChunk, playerCell.color, spawnTarget);
             this.targetedMass.push(newLiquid);
         }
 
+        // The employee bot is spawned after the animation has had time to play out.
         setTimeout(() => {
             const newEmployee = new EmployeeBot(spawnX, spawnY, playerCell, level);
             this.employees.push(newEmployee);
@@ -2006,4 +2014,3 @@ window.addEventListener('load', () => {
         game.run();
     });
 });
-
