@@ -19,21 +19,20 @@ const DEATH_MESSAGE_COLOR = 'rgb(200, 30, 30)';
 const FOOD_COLORS = [
     'rgb(255, 0, 255)', 'rgb(0, 255, 255)', 'rgb(0, 255, 0)', 'rgb(255, 165, 0)', 'rgb(255, 255, 0)'
 ];
-const BEAM_COLOR = 'rgb(0, 191, 255)';
-const ELECTRICITY_COLOR = 'rgb(255, 255, 0)';
-const AURA_COLOR = 'rgba(100, 180, 255, 0.5)';
+const SIPHON_COLOR = 'rgb(137, 207, 240)'; // Baby Blue for the siphon shot
+const SIPHON_AURA_COLOR = 'rgba(137, 207, 240, 0.3)';
 const LIQUIFIED_COLOR = 'rgb(200, 220, 255)';
 const FEED_CHEAT_COLOR = 'rgb(255, 105, 180)';
 const WEB_COLOR = 'rgb(148, 0, 211)';
 const PURGE_COLOR = 'rgb(0, 255, 100)';
-const CREEP_COLOR = 'rgba(128, 0, 128, 0.39)'; // CSS equivalent of (128,0,128,100)
+const CREEP_COLOR = 'rgba(128, 0, 128, 0.39)';
 const UI_GRAY = 'rgb(80, 80, 80)';
 const UI_GREEN = 'rgb(0, 200, 0)';
 const UI_RED = 'rgb(200, 0, 0)';
 const UI_GOLD = 'rgb(255, 215, 0)';
 
 
-// --- Game Settings - TUNED FOR ADVANCED PHYSICS ---
+// --- Game Settings ---
 const INITIAL_PLAYER_MASS = 20;
 const INITIAL_BOT_MASS = 15;
 const FOOD_MASS = 2;
@@ -91,13 +90,13 @@ const ABILITY_STATS = {
             {'desc': 'Infect up to 15 bots, 3 tentacles per bot.', 'cooldown': 10 * 60, 'max_tendrils': 3, 'max_spread': 15},
         ]
     },
-    'swarm_control': {
-        'name': 'Swarm Control', 'key_name': 'E', 'costs': [300, 1500, 2500],
-        'description': 'Toggle control over nearby bots, directing them with your cursor.',
+    'mass_siphon': {
+        'name': 'Mass Siphon', 'key_name': 'Hold LMB', 'costs': [300, 1500, 2500],
+        'description': 'Hold Left Click to siphon food into a charged shot. Release to fire.',
         'tiers': [
-            {'desc': 'Control up to 3 bots.', 'cooldown': 0, 'max_controlled': 3},
-            {'desc': 'Control up to 8 bots.', 'cooldown': 0, 'max_controlled': 8},
-            {'desc': 'Control up to 15 bots.', 'cooldown': 0, 'max_controlled': 15},
+            {'desc': 'Damage: 1x siphoned mass. Small range/cone.', 'multiplier': 1.0, 'siphonRange': 400, 'siphonCone': Math.PI / 6},
+            {'desc': 'Damage: 2x siphoned mass. Medium range/cone.', 'multiplier': 2.0, 'siphonRange': 550, 'siphonCone': Math.PI / 4},
+            {'desc': 'Damage: 3.5x siphoned mass. Large range/cone.', 'multiplier': 3.5, 'siphonRange': 700, 'siphonCone': Math.PI / 3},
         ]
     },
     'regroup': {
@@ -252,20 +251,16 @@ class BotCell extends Cell {
         this.huntingTarget = null;
     }
 
-    updateAi(allCells, food, playerCells, camera, isControlled = false, mouseWorldPos = {x: 0, y: 0}) {
+    updateAi(allCells, food, playerCells, camera) {
         if (this.isWebbed) {
             this.velocityX = 0;
             this.velocityY = 0;
             return;
         }
 
-        if (isControlled) {
-            this.targetX = mouseWorldPos.x;
-            this.targetY = mouseWorldPos.y;
-            this.move();
-            return;
-        }
-
+        // BOT SIGHT LOGIC: The vision range is calculated based on the player's current on-screen view.
+        // It's not omnipresent; it's limited by what would theoretically be on a player's screen.
+        // `camera.zoom` changes as the player's mass changes, so the bot's sight range dynamically adjusts.
         const visionRange = (SCREEN_WIDTH / 2) / camera.zoom;
 
         if (this.personality === "aggressive" && this.huntingTarget) {
@@ -434,6 +429,50 @@ class EjectedMass extends Cell {
     }
 }
 
+class SiphonProjectile extends Cell {
+    constructor(x, y, mass, color, velocityX, velocityY) {
+        super(x, y, mass, color);
+        this.velocityX = velocityX;
+        this.velocityY = velocityY;
+        this.lifespan = 180; // 3 seconds
+        this.stretch = 1.0;
+        this.animTimer = 0;
+    }
+
+    update() {
+        this.updatePosition();
+        this.lifespan--;
+
+        // Animation: stretch out quickly, then slowly return to normal
+        this.animTimer++;
+        if (this.animTimer < 15) {
+            this.stretch = lerp(this.stretch, 4.0, 0.2);
+        } else {
+            this.stretch = lerp(this.stretch, 1.0, 0.05);
+        }
+    }
+
+    draw(ctx, camera) {
+        const { screenX, screenY } = camera.worldToScreen(this.x, this.y);
+        const scaledRadius = this.radius * camera.zoom;
+
+        if (scaledRadius < 2) return;
+
+        ctx.save();
+        ctx.translate(screenX, screenY);
+        
+        const angle = Math.atan2(this.velocityY, this.velocityX);
+        ctx.rotate(angle);
+
+        ctx.beginPath();
+        ctx.ellipse(0, 0, scaledRadius * this.stretch, scaledRadius / this.stretch, 0, 0, Math.PI * 2);
+        
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        ctx.restore();
+    }
+}
+
 class Particle {
     constructor(x, y, vx, vy, size, color, lifespan) {
         this.x = x; this.y = y; this.vx = vx; this.vy = vy;
@@ -482,17 +521,20 @@ class TargetedMass extends Cell {
             const dy = this.target.y - this.y;
             const distance = Math.hypot(dx, dy);
             if (distance > 1) {
-                const pullStrength = 5;
+                const pullStrength = (this instanceof SiphonedFood) ? 25 : 5; // Sucked food moves faster
+                const lerpFactor = (this instanceof SiphonedFood) ? 0.3 : 0.1;
                 const targetVx = (dx / distance) * pullStrength;
                 const targetVy = (dy / distance) * pullStrength;
-                this.velocityX += (targetVx - this.velocityX) * 0.1;
-                this.velocityY += (targetVy - this.velocityY) * 0.1;
+                this.velocityX += (targetVx - this.velocityX) * lerpFactor;
+                this.velocityY += (targetVy - this.velocityY) * lerpFactor;
             }
         }
         this.lifespan--;
         this.updatePosition();
     }
 }
+
+class SiphonedFood extends TargetedMass {}
 
 class ReformMass extends TargetedMass {
     update() {
@@ -829,7 +871,6 @@ class Game {
         this.running = true;
         this.playerIsDead = false;
         this.playerName = "Player";
-        this.swarmControlActive = false;
         this.feedCheatActive = false;
         this.spawnRateDoubled = false;
         this.particles = [];
@@ -839,6 +880,13 @@ class Game {
         this.frame_count = 0;
         this.ejectCooldown = 0;
         this.botSpawnTimer = 0;
+        this.siphonProjectiles = [];
+
+        // Mass Siphon ability state
+        this.isSiphoning = false;
+        this.siphonedMass = 0;
+        this.siphonChargePoint = { x: 0, y: 0 };
+
 
         // Off-screen canvas for creep
         this.creepCanvas = document.createElement('canvas');
@@ -847,8 +895,8 @@ class Game {
         this.creepCtx = this.creepCanvas.getContext('2d');
         
         // Ability System
-        this.abilityLevels = {'parasite_shot': 0, 'swarm_control': 0, 'regroup': 0, 'mass_purge': 0};
-        this.abilityCooldowns = {'parasite_shot': 0, 'swarm_control': 0, 'regroup': 0, 'mass_purge': 0};
+        this.abilityLevels = {'parasite_shot': 0, 'mass_siphon': 0, 'regroup': 0, 'mass_purge': 0};
+        this.abilityCooldowns = {'parasite_shot': 0, 'mass_siphon': 0, 'regroup': 0, 'mass_purge': 0};
         this.upgradeMenuOpen = false;
         this.warningMessage = "";
         this.warningTimer = 0;
@@ -868,25 +916,24 @@ class Game {
         this.particles = [];
         this.targetedMass = [];
         this.webProjectiles = [];
+        this.siphonProjectiles = [];
         this.webs = [];
         this.creepCtx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
         
-        this.abilityLevels = {'parasite_shot': 0, 'swarm_control': 0, 'regroup': 0, 'mass_purge': 0};
-        this.abilityCooldowns = {'parasite_shot': 0, 'swarm_control': 0, 'regroup': 0, 'mass_purge': 0};
+        this.abilityLevels = {'parasite_shot': 0, 'mass_siphon': 0, 'regroup': 0, 'mass_purge': 0};
+        this.abilityCooldowns = {'parasite_shot': 0, 'mass_siphon': 0, 'regroup': 0, 'mass_purge': 0};
         
         this.respawnPlayer();
     }
 
     respawnPlayer() {
-        // Spawn player in a random, central location
-        const spawnPadding = 0.2; // 20% padding from edges
+        const spawnPadding = 0.2;
         const startX = randomInRange(WORLD_WIDTH * spawnPadding, WORLD_WIDTH * (1 - spawnPadding));
         const startY = randomInRange(WORLD_HEIGHT * spawnPadding, WORLD_HEIGHT * (1 - spawnPadding));
         
         this.playerCells = [new PlayerCell(startX, startY, INITIAL_PLAYER_MASS, this.playerName)];
         this.playerIsDead = false;
 
-        // Snap camera immediately to the new player position
         if (this.camera) {
             this.camera.x = startX;
             this.camera.y = startY;
@@ -917,8 +964,24 @@ class Game {
         });
         
         canvas.addEventListener('mousedown', e => {
-             if (!this.playerIsDead && !this.upgradeMenuOpen && e.button === 2) { // Right click
+             if (this.playerIsDead || this.upgradeMenuOpen) return;
+             if (e.button === 2) { // Right click
                 this.fireWebShot();
+             }
+             if (e.button === 0) { // Left click
+                if (this.abilityLevels['mass_siphon'] > 0) {
+                    this.isSiphoning = true;
+                }
+             }
+        });
+
+        canvas.addEventListener('mouseup', e => {
+            if (this.playerIsDead || this.upgradeMenuOpen) return;
+            if (e.button === 0) { // Left click release
+                if (this.isSiphoning) {
+                    this.fireSiphonShot();
+                    this.isSiphoning = false;
+                }
             }
         });
 
@@ -930,7 +993,7 @@ class Game {
             this.respawnPlayer();
         } else if (this.upgradeMenuOpen) {
             if (key === '1') this.upgradeAbility('parasite_shot');
-            if (key === '2') this.upgradeAbility('swarm_control');
+            if (key === '2') this.upgradeAbility('mass_siphon');
             if (key === '3') this.upgradeAbility('regroup');
             if (key === '4') this.upgradeAbility('mass_purge');
             if (key === 'u') this.upgradeMenuOpen = false;
@@ -938,7 +1001,6 @@ class Game {
             if (key === ' ') this.splitPlayerCells();
             if (key === 'd') this.reformPlayerCells();
             if (key === 'r') this.activateMassPurge();
-            if (key === 'e') this.toggleSwarmControl();
             if (key === 'q') this.feedCheatActive = !this.feedCheatActive;
             if (key === 'u') this.upgradeMenuOpen = true;
         }
@@ -1036,12 +1098,6 @@ class Game {
         this.abilityCooldowns['regroup'] = cooldown;
     }
 
-    toggleSwarmControl() {
-        if (this.abilityLevels['swarm_control'] > 0) {
-            this.swarmControlActive = !this.swarmControlActive;
-        }
-    }
-
     activateMassPurge() {
         const level = this.abilityLevels['mass_purge'];
         if (level === 0 || this.abilityCooldowns['mass_purge'] > 0 || this.playerCells.length === 0) return;
@@ -1056,7 +1112,6 @@ class Game {
         playerCell.updateRadius();
 
         const allPurgeable = [...this.bots, ...this.food];
-        // Fisher-Yates shuffle
         for (let i = allPurgeable.length - 1; i > 0; i--) {
             const j = Math.floor(Math.random() * (i + 1));
             [allPurgeable[i], allPurgeable[j]] = [allPurgeable[j], allPurgeable[i]];
@@ -1069,7 +1124,7 @@ class Game {
             allPurgeable[i].purgeDecayRate = stats.decay_rate;
         }
             
-        this.abilityCooldowns['mass_purge'] = 30 * 60; // Hardcoded
+        this.abilityCooldowns['mass_purge'] = 30 * 60;
     }
     
     updateGameState() {
@@ -1087,6 +1142,7 @@ class Game {
 
         this.updateFeedCheat();
         this.updateBotSpawning();
+        this.updateSiphon();
 
         if (this.ejectCooldown > 0) this.ejectCooldown--;
         if (this.keysPressed['w'] && this.ejectCooldown <= 0) {
@@ -1099,26 +1155,12 @@ class Game {
             this.playerCells.forEach(cell => cell.setMovementInput(this.mousePos, this.camera));
         }
         
-        let controlledBots = [];
-        if (this.swarmControlActive) {
-            const level = this.abilityLevels['swarm_control'];
-            if (level > 0) {
-                const maxControlled = ABILITY_STATS['swarm_control'].tiers[level - 1].max_controlled;
-                this.bots.sort((a, b) => 
-                    Math.hypot(a.x - mouseWorldPos.worldX, a.y - mouseWorldPos.worldY) -
-                    Math.hypot(b.x - mouseWorldPos.worldX, b.y - mouseWorldPos.worldY)
-                );
-                controlledBots = this.bots.slice(0, maxControlled);
-            }
-        }
-        
         const allEaters = [...this.playerCells, ...this.bots];
         this.bots.forEach(bot => {
-            const isControlled = controlledBots.includes(bot);
-            bot.updateAi(allEaters, this.food, this.playerCells, this.camera, isControlled, {x: mouseWorldPos.worldX, y: mouseWorldPos.worldY});
+            bot.updateAi(allEaters, this.food, this.playerCells, this.camera);
         });
         
-        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.webProjectiles].forEach(cell => cell.update());
+        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.webProjectiles, ...this.siphonProjectiles].forEach(cell => cell.update());
         this.particles.forEach(p => p.update());
         this.targetedMass.forEach(tm => tm.update());
         this.webs.forEach(web => web.update(this.bots, this.food, this.frame_count, this.creepCtx));
@@ -1146,24 +1188,13 @@ class Game {
              this.food.push(new Food(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT));
         }
 
-
         if (!this.playerIsDead) {
             this.handlePlayerCollisions();
             this.mergePlayerCells();
         }
-
-        this.webProjectiles = this.webProjectiles.filter(proj => {
-            for (const bot of this.bots) {
-                if (!bot.isWebbed && this.checkEat(proj, bot)) {
-                    const level = this.abilityLevels['parasite_shot'];
-                    if (level > 0) {
-                        this.webs.push(new Web(bot, level));
-                    }
-                    return false; // remove projectile
-                }
-            }
-            return true;
-        });
+        
+        // --- Collision Detection ---
+        this.handleProjectileCollisions();
 
         const eatenThisFrame = new Set();
         for (const eater of allEaters) {
@@ -1173,7 +1204,11 @@ class Game {
                     continue;
                 }
                 if (this.checkEat(eater, consumable)) {
-                    eater.mass += consumable.mass;
+                    if (consumable instanceof SiphonedFood && eater instanceof PlayerCell) {
+                         this.siphonedMass += consumable.mass;
+                    } else {
+                        eater.mass += consumable.mass;
+                    }
                     eatenThisFrame.add(consumable);
                 }
             }
@@ -1189,9 +1224,7 @@ class Game {
         eatenThisFrame.forEach(eatenItem => {
             if (eatenItem instanceof BotCell) {
                 const index = this.bots.indexOf(eatenItem);
-                if (index > -1) {
-                    this.removeCell(eatenItem);
-                }
+                if (index > -1) { this.removeCell(eatenItem); }
             } else if (eatenItem instanceof PlayerCell) {
                 const index = this.playerCells.indexOf(eatenItem);
                 if (index > -1) this.playerCells.splice(index, 1);
@@ -1203,20 +1236,132 @@ class Game {
                 }
             }
         });
+
         this.ejectedMass = this.ejectedMass.filter(m => !eatenThisFrame.has(m));
         this.targetedMass = this.targetedMass.filter(tm => !eatenThisFrame.has(tm));
 
         [...this.playerCells, ...this.bots].forEach(cell => cell.updateRadius());
 
+        // --- List Cleanup ---
         this.particles = this.particles.filter(p => p.lifespan > 0);
         this.targetedMass = this.targetedMass.filter(tm => tm.lifespan > 0);
         this.webProjectiles = this.webProjectiles.filter(p => p.decayTimer > 0);
+        this.siphonProjectiles = this.siphonProjectiles.filter(p => p.lifespan > 0 && p.mass > 1);
         this.webs = this.webs.filter(w => w.webbedBots.size > 0);
         
         this.camera.update(this.playerCells);
         if (this.playerCells.length === 0 && !this.playerIsDead) this.playerIsDead = true;
     }
 
+    handleProjectileCollisions() {
+        this.webProjectiles = this.webProjectiles.filter(proj => {
+            for (const bot of this.bots) {
+                if (!bot.isWebbed && this.checkEat(proj, bot)) {
+                    const level = this.abilityLevels['parasite_shot'];
+                    if (level > 0) { this.webs.push(new Web(bot, level)); }
+                    return false;
+                }
+            }
+            return true;
+        });
+
+        this.siphonProjectiles = this.siphonProjectiles.filter(proj => {
+            const allTargets = [...this.bots, ...this.playerCells];
+            for (const target of allTargets) {
+                 if (target instanceof PlayerCell && this.playerCells.includes(proj.origin)) continue;
+
+                const dist = Math.hypot(proj.x - target.x, proj.y - target.y);
+                if (dist < proj.radius + target.radius) {
+                    target.mass -= proj.mass;
+                    if (target.mass < 1 && target instanceof BotCell) {
+                        this.removeCell(target);
+                    }
+                     for (let i = 0; i < 20; i++) {
+                        const angle = Math.random() * 2 * Math.PI;
+                        const speed = Math.random() * 5;
+                        this.particles.push(new Particle(proj.x, proj.y, Math.cos(angle) * speed, Math.sin(angle) * speed, 4, SIPHON_COLOR, 40));
+                    }
+                    return false; // Projectile is consumed
+                }
+            }
+            return true; // Projectile continues
+        });
+    }
+    
+    updateSiphon() {
+        if (!this.isSiphoning || this.playerCells.length === 0) return;
+
+        const level = this.abilityLevels['mass_siphon'];
+        if (level === 0) return;
+        const stats = ABILITY_STATS['mass_siphon'].tiers[level - 1];
+
+        const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
+        const { worldX: mouseX, worldY: mouseY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
+
+        const dx = mouseX - playerCell.x;
+        const dy = mouseY - playerCell.y;
+        const angleToMouse = Math.atan2(dy, dx);
+        
+        const chargeDist = playerCell.radius + getRadius(this.siphonedMass) + 15;
+        this.siphonChargePoint = {
+            x: playerCell.x + Math.cos(angleToMouse) * chargeDist,
+            y: playerCell.y + Math.sin(angleToMouse) * chargeDist
+        };
+
+        const foodToSiphon = [];
+        for (const food of this.food) {
+            const dist = Math.hypot(playerCell.x - food.x, playerCell.y - food.y);
+            if (dist < stats.siphonRange) {
+                const angleToFood = Math.atan2(food.y - playerCell.y, food.x - playerCell.x);
+                let angleDiff = Math.abs(angleToMouse - angleToFood);
+                if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+
+                if (angleDiff < stats.siphonCone / 2) {
+                    foodToSiphon.push(food);
+                }
+            }
+        }
+
+        foodToSiphon.forEach(food => {
+            const index = this.food.indexOf(food);
+            if (index > -1) {
+                this.food.splice(index, 1);
+                this.targetedMass.push(new SiphonedFood(food.x, food.y, food.mass, SIPHON_COLOR, playerCell));
+            }
+        });
+    }
+
+    fireSiphonShot() {
+        if (this.siphonedMass <= 0 || this.playerCells.length === 0) {
+            this.siphonedMass = 0;
+            return;
+        };
+
+        const level = this.abilityLevels['mass_siphon'];
+        const stats = ABILITY_STATS['mass_siphon'].tiers[level - 1];
+
+        const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
+        const { worldX, worldY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
+
+        const dx = worldX - playerCell.x;
+        const dy = worldY - playerCell.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist === 0) return;
+
+        const shotMass = this.siphonedMass * stats.multiplier;
+        const shotSpeed = 35;
+
+        const velX = (dx / dist) * shotSpeed;
+        const velY = (dy / dist) * shotSpeed;
+
+        const proj = new SiphonProjectile(this.siphonChargePoint.x, this.siphonChargePoint.y, shotMass, SIPHON_COLOR, velX, velY);
+        proj.origin = playerCell; // To prevent hitting self
+        this.siphonProjectiles.push(proj);
+
+        this.siphonedMass = 0;
+    }
+    
     updateFeedCheat() {
         if (!this.feedCheatActive || this.playerCells.length === 0 || this.bots.length === 0) return;
         const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
@@ -1361,7 +1506,7 @@ class Game {
                         larger.updateRadius();
                         
                         mergedIndices.add(smaller === c1 ? i : j);
-                        c1 = larger; // Continue merging into the larger cell
+                        c1 = larger;
                     }
                 }
             }
@@ -1406,35 +1551,25 @@ class Game {
     }
 
     draw() {
-        // Clear the main canvas
         ctx.fillStyle = WHITE;
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
-        // --- WORLD RENDERING ---
-        // Save the default (untransformed) state
         ctx.save();
-        
-        // Apply camera transformations for drawing world-based elements
         ctx.translate(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
         ctx.scale(this.camera.zoom, this.camera.zoom);
         ctx.translate(-this.camera.x, -this.camera.y);
 
         this.drawGrid();
 
-        // Draw the pre-rendered creep from its own canvas
         const { worldX: viewX, worldY: viewY } = this.camera.screenToWorld(0, 0);
         const viewW = SCREEN_WIDTH / this.camera.zoom;
         const viewH = SCREEN_HEIGHT / this.camera.zoom;
         ctx.drawImage(this.creepCanvas, viewX, viewY, viewW, viewH, viewX, viewY, viewW, viewH);
 
-        // Restore the canvas to its original state (no transformation)
         ctx.restore();
         
-        // --- SCREEN-SPACE RENDERING ---
-        // All objects from here on will be drawn in screen-space.
-        // Their own draw methods will convert world->screen coordinates.
+        this.drawSiphonEffects();
 
-        // Draw purge effects
         [...this.bots, ...this.food].forEach(cell => {
              if (cell.isPurged) {
                 const pulse = (Math.sin(this.frame_count * 0.2) + 1) / 2;
@@ -1450,7 +1585,7 @@ class Game {
             }
         });
 
-        const allObjects = [...this.food, ...this.ejectedMass, ...this.bots, ...this.playerCells, ...this.targetedMass, ...this.webProjectiles];
+        const allObjects = [...this.food, ...this.ejectedMass, ...this.bots, ...this.playerCells, ...this.targetedMass, ...this.webProjectiles, ...this.siphonProjectiles];
         allObjects.sort((a, b) => a.mass - b.mass);
         allObjects.forEach(obj => obj.draw(ctx, this.camera));
         
@@ -1458,7 +1593,6 @@ class Game {
         
         this.webs.forEach(web => web.draw(ctx, this.camera, this.frame_count));
         
-        // --- UI RENDERING ---
         if (this.playerIsDead) { 
             this.drawDeathScreen();
         } else if (this.playerCells && this.playerCells.length > 0) { 
@@ -1472,11 +1606,56 @@ class Game {
         }
     }
 
+    drawSiphonEffects() {
+        if (!this.isSiphoning || this.playerCells.length === 0) return;
+        const level = this.abilityLevels['mass_siphon'];
+        if (level === 0) return;
+        
+        const stats = ABILITY_STATS['mass_siphon'].tiers[level-1];
+        const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
+        const { screenX: playerScreenX, screenY: playerScreenY } = this.camera.worldToScreen(playerCell.x, playerCell.y);
+        
+        const angleToMouse = Math.atan2(this.mousePos.y - playerScreenY, this.mousePos.x - playerScreenX);
+
+        // Draw cone
+        ctx.beginPath();
+        const coneEdge1X = playerScreenX + Math.cos(angleToMouse - stats.siphonCone / 2) * stats.siphonRange * this.camera.zoom;
+        const coneEdge1Y = playerScreenY + Math.sin(angleToMouse - stats.siphonCone / 2) * stats.siphonRange * this.camera.zoom;
+        const coneEdge2X = playerScreenX + Math.cos(angleToMouse + stats.siphonCone / 2) * stats.siphonRange * this.camera.zoom;
+        const coneEdge2Y = playerScreenY + Math.sin(angleToMouse + stats.siphonCone / 2) * stats.siphonRange * this.camera.zoom;
+        ctx.moveTo(playerScreenX, playerScreenY);
+        ctx.lineTo(coneEdge1X, coneEdge1Y);
+        ctx.moveTo(playerScreenX, playerScreenY);
+        ctx.lineTo(coneEdge2X, coneEdge2Y);
+        ctx.strokeStyle = 'rgba(137, 207, 240, 0.2)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Draw charging blob
+        if (this.siphonedMass > 0) {
+            const { screenX, screenY } = this.camera.worldToScreen(this.siphonChargePoint.x, this.siphonChargePoint.y);
+            const radius = getRadius(this.siphonedMass) * this.camera.zoom;
+            const pulse = 1 + Math.sin(this.frame_count * 0.1) * 0.1;
+            
+            // Outer aura
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, radius * pulse * 1.5, 0, Math.PI * 2);
+            ctx.fillStyle = SIPHON_AURA_COLOR;
+            ctx.fill();
+
+            // Inner core
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, radius * pulse, 0, Math.PI * 2);
+            ctx.fillStyle = SIPHON_COLOR;
+            ctx.fill();
+        }
+    }
+
     drawGrid() {
         const gridSpacing = 50;
         ctx.beginPath();
         ctx.strokeStyle = GRID_COLOR;
-        ctx.lineWidth = 1 / this.camera.zoom; // Keep grid lines thin
+        ctx.lineWidth = 1 / this.camera.zoom;
 
         const {worldX: viewX, worldY: viewY} = this.camera.screenToWorld(0, 0);
         const viewW = SCREEN_WIDTH / this.camera.zoom;
@@ -1510,13 +1689,6 @@ class Game {
         ctx.fillText(`Bots: ${this.bots.length}/${MAX_BOT_COUNT}`, 10, 40);
 
         let yOffset = 70;
-        if (this.swarmControlActive) {
-            const level = this.abilityLevels['swarm_control'];
-            const maxControlled = ABILITY_STATS['swarm_control'].tiers[level - 1].max_controlled;
-            ctx.fillStyle = 'red';
-            ctx.fillText(`Swarm Control Active (${maxControlled} bots)!`, 10, yOffset);
-            yOffset += 30;
-        }
         if (this.feedCheatActive) {
             ctx.fillStyle = FEED_CHEAT_COLOR;
             ctx.fillText('Feed Cheat Active!', 10, yOffset);
@@ -1537,7 +1709,7 @@ class Game {
     }
 
     drawCooldowns() {
-        const cooldownKeys = ['parasite_shot', 'regroup', 'swarm_control', 'mass_purge'];
+        const cooldownKeys = ['parasite_shot', 'regroup', 'mass_siphon', 'mass_purge'];
         const iconSize = 50;
         const margin = 10;
         const startX = SCREEN_WIDTH - 210;
@@ -1610,7 +1782,7 @@ class Game {
         ctx.textAlign = 'right';
         ctx.fillText(`Your Mass: ${totalMass}`, menuX + menuWidth - 20, menuY + 20);
 
-        const abilityKeys = ['parasite_shot', 'swarm_control', 'regroup', 'mass_purge'];
+        const abilityKeys = ['parasite_shot', 'mass_siphon', 'regroup', 'mass_purge'];
         const startY = menuY + 70;
         for (let i = 0; i < abilityKeys.length; i++) {
             const key = abilityKeys[i];
