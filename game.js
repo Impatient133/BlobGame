@@ -61,6 +61,7 @@ const FEED_CHEAT_DRAIN_RATE = 2.0;
 const FEED_CHEAT_PERCENT_DRAIN = 0.002;
 const BASE_FEED_CHEAT_CHUNK_MASS = 2;
 const FEED_CHEAT_MASS_SCALE_PERCENT = 0.01;
+const FOOD_CHEAT_SPAWN_RATE = 15; // How often food spawns with cheat (in frames)
 
 // --- Web Shot & Creep Settings ---
 const WEB_SHOT_COST = 20;
@@ -94,9 +95,9 @@ const ABILITY_STATS = {
         'name': 'Mass Siphon', 'key_name': 'Hold LMB', 'costs': [300, 1500, 2500],
         'description': 'Hold Left Click to siphon food into a charged shot. Release to fire.',
         'tiers': [
-            {'desc': 'Damage: 1x siphoned mass. Small range/cone.', 'multiplier': 1.0, 'siphonRange': 400, 'siphonCone': Math.PI / 6},
-            {'desc': 'Damage: 2x siphoned mass. Medium range/cone.', 'multiplier': 2.0, 'siphonRange': 550, 'siphonCone': Math.PI / 4},
-            {'desc': 'Damage: 3.5x siphoned mass. Large range/cone.', 'multiplier': 3.5, 'siphonRange': 700, 'siphonCone': Math.PI / 3},
+            {'desc': 'Damage: 1.5x siphoned mass. Small range/cone.', 'multiplier': 1.5, 'siphonRange': 400, 'siphonCone': Math.PI / 6},
+            {'desc': 'Damage: 2.5x siphoned mass. Medium range/cone.', 'multiplier': 2.5, 'siphonRange': 550, 'siphonCone': Math.PI / 4},
+            {'desc': 'Damage: 4.0x siphoned mass. Large range/cone.', 'multiplier': 4.0, 'siphonRange': 700, 'siphonCone': Math.PI / 3},
         ]
     },
     'regroup': {
@@ -293,7 +294,6 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            // --- AI REVERTED TO ORIGINAL STATE ---
             this.targetX = this.x + (this.x - closestThreat.x);
             this.targetY = this.y + (this.y - closestThreat.y);
             return;
@@ -336,7 +336,6 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            // --- AI REVERTED TO ORIGINAL STATE ---
             this.targetX = this.x + (this.x - closestThreat.x);
             this.targetY = this.y + (this.y - closestThreat.y);
             return;
@@ -353,7 +352,6 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            // --- AI REVERTED TO ORIGINAL STATE ---
             this.targetX = this.x + (this.x - closestThreat.x);
             this.targetY = this.y + (this.y - closestThreat.y);
             return;
@@ -881,6 +879,7 @@ class Game {
         this.frame_count = 0;
         this.ejectCooldown = 0;
         this.botSpawnTimer = 0;
+        this.foodSpawnTimer = 0;
         this.siphonProjectiles = [];
 
         // Mass Siphon ability state
@@ -1143,6 +1142,7 @@ class Game {
 
         this.updateFeedCheat();
         this.updateBotSpawning();
+        this.updateFoodSpawning(); // Handle cheat food spawning
         this.updateSiphon();
 
         if (this.ejectCooldown > 0) this.ejectCooldown--;
@@ -1324,6 +1324,8 @@ class Game {
             const index = this.food.indexOf(food);
             if (index > -1) {
                 this.food.splice(index, 1);
+                // **FIX**: Respawn siphoned food immediately
+                this.food.push(new Food(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT));
                 this.targetedMass.push(new SiphonedFood(food.x, food.y, food.mass, SIPHON_COLOR, playerCell));
             }
         });
@@ -1399,6 +1401,19 @@ class Game {
             this.botSpawnTimer = currentRate;
             if (this.bots.length < MAX_BOT_COUNT) {
                 this.bots.push(new BotCell(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT, INITIAL_BOT_MASS));
+            }
+        }
+    }
+
+    updateFoodSpawning() {
+        if (this.spawnRateDoubled) { // If 'A' key is held
+            this.foodSpawnTimer--;
+            if (this.foodSpawnTimer <= 0) {
+                this.foodSpawnTimer = FOOD_CHEAT_SPAWN_RATE;
+                // Add a new food pellet, with a cap to prevent lag
+                if (this.food.length < FOOD_COUNT * 2) {
+                     this.food.push(new Food(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT));
+                }
             }
         }
     }
@@ -1693,7 +1708,7 @@ class Game {
         }
         if (this.spawnRateDoubled) {
             ctx.fillStyle = 'green';
-            ctx.fillText('Bot Spawn Rate Doubled!', 10, yOffset);
+            ctx.fillText('Bot & Food Spawn Rate Doubled!', 10, yOffset);
         }
         
         ctx.font = '20px arial';
