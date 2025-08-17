@@ -97,7 +97,7 @@ const ABILITY_STATS = {
         'tiers': [
             {'desc': 'Damage: 1.5x siphoned mass. Small range/cone.', 'multiplier': 1.5, 'siphonRange': 400, 'siphonCone': Math.PI / 6},
             {'desc': 'Damage: 2.5x siphoned mass. Medium range/cone.', 'multiplier': 2.5, 'siphonRange': 550, 'siphonCone': Math.PI / 4},
-            {'desc': 'Damage: 4.0x siphoned mass. Large range/cone.', 'multiplier': 4.0, 'siphonRange': 700, 'siphonCone': Math.PI / 3},
+            {'desc': 'Damage: 3.5x siphoned mass. Large range/cone.', 'multiplier': 3.5, 'siphonRange': 700, 'siphonCone': Math.PI / 3},
         ]
     },
     'regroup': {
@@ -1187,7 +1187,11 @@ class Game {
             }
         });
         
+        // **FIX**: Ensure bots destroyed by purge are properly removed to erase their creep
+        const botsToPurge = this.bots.filter(b => b.mass <= 1);
+        botsToPurge.forEach(bot => this.removeCell(bot));
         this.bots = this.bots.filter(b => b.mass > 1);
+
         const foodCountBefore = this.food.length;
         this.food = this.food.filter(f => f.mass > 1);
         const foodEatenByPurge = foodCountBefore - this.food.length;
@@ -1209,7 +1213,6 @@ class Game {
                 
                 if (eater instanceof PlayerCell && consumable instanceof TargetedMass && !(consumable instanceof ReformMass) && consumable.playerEatCooldown > 0) continue;
                 
-                // **FIX**: Prevent bots from eating siphoned food particles
                 if (eater instanceof BotCell && consumable instanceof SiphonedFood) continue;
 
                 if (this.checkEat(eater, consumable)) {
@@ -1232,8 +1235,7 @@ class Game {
         
         eatenThisFrame.forEach(eatenItem => {
             if (eatenItem instanceof BotCell) {
-                const index = this.bots.indexOf(eatenItem);
-                if (index > -1) { this.removeCell(eatenItem); }
+                this.removeCell(eatenItem);
             } else if (eatenItem instanceof PlayerCell) {
                 const index = this.playerCells.indexOf(eatenItem);
                 if (index > -1) this.playerCells.splice(index, 1);
