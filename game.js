@@ -111,9 +111,9 @@ const ABILITY_STATS = {
         'name': 'Mass Purge', 'key_name': '4', 'costs': [150, 750, 1250],
         'description': 'Unleash a viral purge that decays a percentage of all cells on the map.',
         'tiers': [
-            {'desc': 'Purge affects 20% of cells.', 'cost': 75, 'duration': 5*60, 'affect_percentage': 0.2, 'decay_rate': 0.01},
-            {'desc': 'Purge affects 35% of cells.', 'cost': 75, 'duration': 5*60, 'affect_percentage': 0.35, 'decay_rate': 0.01},
-            {'desc': 'Purge affects 50% of cells.', 'cost': 75, 'duration': 5*60, 'affect_percentage': 0.5, 'decay_rate': 0.015},
+            {'desc': 'Purge affects 20% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.2, 'decay_rate': 0.01},
+            {'desc': 'Purge affects 35% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.35, 'decay_rate': 0.01},
+            {'desc': 'Purge affects 50% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.5, 'decay_rate': 0.015},
         ]
     }
 };
