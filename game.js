@@ -258,9 +258,6 @@ class BotCell extends Cell {
             return;
         }
 
-        // BOT SIGHT LOGIC: The vision range is calculated based on the player's current on-screen view.
-        // It's not omnipresent; it's limited by what would theoretically be on a player's screen.
-        // `camera.zoom` changes as the player's mass changes, so the bot's sight range dynamically adjusts.
         const visionRange = (SCREEN_WIDTH / 2) / camera.zoom;
 
         if (this.personality === "aggressive" && this.huntingTarget) {
@@ -286,6 +283,48 @@ class BotCell extends Cell {
     getClosest(targets, property = 'dist') {
         return targets.reduce((closest, current) => (current[property] < closest[property] ? current : closest), targets[0]);
     }
+    
+    // --- NEW AI BEHAVIOR ---
+    // This new method prevents bots from getting stuck on the edges of the map.
+    // Instead of fleeing blindly, it checks several escape routes and picks the one
+    // that leads it furthest from the threat AND furthest from the map edges.
+    findBestFleeTarget(threat, visionRange) {
+        const fleeVecX = this.x - threat.x;
+        const fleeVecY = this.y - threat.y;
+        const dist = Math.hypot(fleeVecX, fleeVecY);
+
+        if (dist === 0) return { x: this.x, y: this.y };
+
+        const normX = fleeVecX / dist;
+        const normY = fleeVecY / dist;
+
+        const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]; // Straight, diagonals, sideways
+        let bestScore = -Infinity;
+        let bestTarget = { x: this.x, y: this.y };
+
+        for (const angle of angles) {
+            const rotX = normX * Math.cos(angle) - normY * Math.sin(angle);
+            const rotY = normX * Math.sin(angle) + normY * Math.cos(angle);
+
+            const target = {
+                x: this.x + rotX * visionRange,
+                y: this.y + rotY * visionRange
+            };
+
+            const distToThreat = Math.hypot(target.x - threat.x, target.y - threat.y);
+            // Penalize targets that are close to the map's center to encourage fleeing to edges LESS
+            const distToCenter = Math.hypot(target.x - WORLD_WIDTH / 2, target.y - WORLD_HEIGHT / 2);
+            
+            // Score is based on distance from threat, but heavily penalized for being far from the center
+            const score = distToThreat - (distToCenter * 1.5);
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestTarget = target;
+            }
+        }
+        return bestTarget;
+    }
 
     runTimidAi(allCells, food, visionRange) {
         const threats = allCells
@@ -295,8 +334,9 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            this.targetX = this.x + (this.x - closestThreat.x);
-            this.targetY = this.y + (this.y - closestThreat.y);
+            const bestTarget = this.findBestFleeTarget(closestThreat, visionRange);
+            this.targetX = bestTarget.x;
+            this.targetY = bestTarget.y;
             return;
         }
 
@@ -337,8 +377,9 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            this.targetX = this.x + (this.x - closestThreat.x);
-            this.targetY = this.y + (this.y - closestThreat.y);
+            const bestTarget = this.findBestFleeTarget(closestThreat, visionRange);
+            this.targetX = bestTarget.x;
+            this.targetY = bestTarget.y;
             return;
         }
         
@@ -353,8 +394,9 @@ class BotCell extends Cell {
 
         if (threats.length > 0) {
             const closestThreat = this.getClosest(threats).cell;
-            this.targetX = this.x + (this.x - closestThreat.x);
-            this.targetY = this.y + (this.y - closestThreat.y);
+            const bestTarget = this.findBestFleeTarget(closestThreat, visionRange);
+            this.targetX = bestTarget.x;
+            this.targetY = bestTarget.y;
             return;
         }
 
@@ -1150,7 +1192,6 @@ class Game {
             this.ejectCooldown = EJECT_COOLDOWN_TIME;
         }
 
-        const mouseWorldPos = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
         if (!this.playerIsDead) {
             this.playerCells.forEach(cell => cell.setMovementInput(this.mousePos, this.camera));
         }
@@ -1193,7 +1234,6 @@ class Game {
             this.mergePlayerCells();
         }
         
-        // --- Collision Detection ---
         this.handleProjectileCollisions();
 
         const eatenThisFrame = new Set();
@@ -1242,7 +1282,6 @@ class Game {
 
         [...this.playerCells, ...this.bots].forEach(cell => cell.updateRadius());
 
-        // --- List Cleanup ---
         this.particles = this.particles.filter(p => p.lifespan > 0);
         this.targetedMass = this.targetedMass.filter(tm => tm.lifespan > 0);
         this.webProjectiles = this.webProjectiles.filter(p => p.decayTimer > 0);
@@ -1617,7 +1656,6 @@ class Game {
         
         const angleToMouse = Math.atan2(this.mousePos.y - playerScreenY, this.mousePos.x - playerScreenX);
 
-        // Draw cone
         ctx.beginPath();
         const coneEdge1X = playerScreenX + Math.cos(angleToMouse - stats.siphonCone / 2) * stats.siphonRange * this.camera.zoom;
         const coneEdge1Y = playerScreenY + Math.sin(angleToMouse - stats.siphonCone / 2) * stats.siphonRange * this.camera.zoom;
@@ -1625,25 +1663,25 @@ class Game {
         const coneEdge2Y = playerScreenY + Math.sin(angleToMouse + stats.siphonCone / 2) * stats.siphonRange * this.camera.zoom;
         ctx.moveTo(playerScreenX, playerScreenY);
         ctx.lineTo(coneEdge1X, coneEdge1Y);
-        ctx.moveTo(playerScreenX, playerScreenY);
-        ctx.lineTo(coneEdge2X, coneEdge2Y);
-        ctx.strokeStyle = 'rgba(137, 207, 240, 0.2)';
-        ctx.lineWidth = 2;
+        ctx.arc(playerScreenX, playerScreenY, stats.siphonRange * this.camera.zoom, angleToMouse - stats.siphonCone / 2, angleToMouse + stats.siphonCone / 2);
+        ctx.lineTo(playerScreenX, playerScreenY);
+
+        ctx.fillStyle = 'rgba(137, 207, 240, 0.1)';
+        ctx.strokeStyle = 'rgba(137, 207, 240, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.fill();
         ctx.stroke();
 
-        // Draw charging blob
         if (this.siphonedMass > 0) {
             const { screenX, screenY } = this.camera.worldToScreen(this.siphonChargePoint.x, this.siphonChargePoint.y);
             const radius = getRadius(this.siphonedMass) * this.camera.zoom;
             const pulse = 1 + Math.sin(this.frame_count * 0.1) * 0.1;
             
-            // Outer aura
             ctx.beginPath();
             ctx.arc(screenX, screenY, radius * pulse * 1.5, 0, Math.PI * 2);
             ctx.fillStyle = SIPHON_AURA_COLOR;
             ctx.fill();
 
-            // Inner core
             ctx.beginPath();
             ctx.arc(screenX, screenY, radius * pulse, 0, Math.PI * 2);
             ctx.fillStyle = SIPHON_COLOR;
