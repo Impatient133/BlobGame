@@ -284,10 +284,10 @@ class BotCell extends Cell {
         return targets.reduce((closest, current) => (current[property] < closest[property] ? current : closest), targets[0]);
     }
     
-    // --- NEW AI BEHAVIOR ---
-    // This new method prevents bots from getting stuck on the edges of the map.
-    // Instead of fleeing blindly, it checks several escape routes and picks the one
-    // that leads it furthest from the threat AND furthest from the map edges.
+    // --- REVISED AI BEHAVIOR ---
+    // This logic prevents bots from getting stuck on edges OR orbiting central players.
+    // It evaluates several escape paths and invalidates any that lead too close to a wall.
+    // It then picks the best valid path, preferring to strafe if running straight is not an option.
     findBestFleeTarget(threat, visionRange) {
         const fleeVecX = this.x - threat.x;
         const fleeVecY = this.y - threat.y;
@@ -300,29 +300,40 @@ class BotCell extends Cell {
 
         const angles = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2]; // Straight, diagonals, sideways
         let bestScore = -Infinity;
-        let bestTarget = { x: this.x, y: this.y };
+        let bestTarget = null;
+
+        const fleeDistance = visionRange * 0.75; // How far to set the target point
+        const edgePadding = 200; // How far to stay away from walls
 
         for (const angle of angles) {
             const rotX = normX * Math.cos(angle) - normY * Math.sin(angle);
             const rotY = normX * Math.sin(angle) + normY * Math.cos(angle);
 
             const target = {
-                x: this.x + rotX * visionRange,
-                y: this.y + rotY * visionRange
+                x: this.x + rotX * fleeDistance,
+                y: this.y + rotY * fleeDistance
             };
 
-            const distToThreat = Math.hypot(target.x - threat.x, target.y - threat.y);
-            // Penalize targets that are close to the map's center to encourage fleeing to edges LESS
-            const distToCenter = Math.hypot(target.x - WORLD_WIDTH / 2, target.y - WORLD_HEIGHT / 2);
-            
-            // Score is based on distance from threat, but heavily penalized for being far from the center
-            const score = distToThreat - (distToCenter * 1.5);
+            // If the target is too close to an edge, it's a bad path.
+            if (target.x < edgePadding || target.x > WORLD_WIDTH - edgePadding ||
+                target.y < edgePadding || target.y > WORLD_HEIGHT - edgePadding) {
+                continue; // Skip this angle
+            }
+
+            // A good score is simply being far from the threat.
+            const score = Math.hypot(target.x - threat.x, target.y - threat.y);
 
             if (score > bestScore) {
                 bestScore = score;
                 bestTarget = target;
             }
         }
+        
+        // If all paths were invalid (e.g., cornered), just flee directly as a last resort.
+        if (!bestTarget) {
+            bestTarget = { x: this.x + normX * fleeDistance, y: this.y + normY * fleeDistance };
+        }
+        
         return bestTarget;
     }
 
@@ -1350,7 +1361,7 @@ class Game {
         const foodToSiphon = [];
         for (const food of this.food) {
             const dist = Math.hypot(playerCell.x - food.x, playerCell.y - food.y);
-            if (dist < stats.siphonRange) {
+            if (dist < stats.siphonRange && dist > playerCell.radius) {
                 const angleToFood = Math.atan2(food.y - playerCell.y, food.x - playerCell.x);
                 let angleDiff = Math.abs(angleToMouse - angleToFood);
                 if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
