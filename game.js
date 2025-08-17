@@ -32,6 +32,7 @@ const UI_GOLD = 'rgb(255, 215, 0)';
 // --- Game Settings ---
 const INITIAL_PLAYER_MASS = 20;
 const INITIAL_BOT_MASS = 15;
+const EMPLOYEE_BOT_MASS = 15;
 const FOOD_MASS = 2;
 const FOOD_COUNT = 300;
 const INITIAL_BOT_COUNT = 15;
@@ -110,9 +111,9 @@ const ABILITY_STATS = {
         'name': 'Mass Purge', 'key_name': '4', 'costs': [150, 750, 1250],
         'description': 'Unleash a viral purge that decays a percentage of all cells on the map.',
         'tiers': [
-            {'desc': 'Purge affects 20% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.2, 'decay_rate': 0.01},
-            {'desc': 'Purge affects 35% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.35, 'decay_rate': 0.01},
-            {'desc': 'Purge affects 50% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.5, 'decay_rate': 0.015},
+            {'desc': 'Purge affects 20% of cells.', 'cost': 75, 'duration': 5*60, 'affect_percentage': 0.2, 'decay_rate': 0.01},
+            {'desc': 'Purge affects 35% of cells.', 'cost': 75, 'duration': 5*60, 'affect_percentage': 0.35, 'decay_rate': 0.01},
+            {'desc': 'Purge affects 50% of cells.', 'cost': 75, 'duration': 5*60, 'affect_percentage': 0.5, 'decay_rate': 0.015},
         ]
     }
 };
@@ -405,11 +406,10 @@ class BotCell extends Cell {
 
 class EmployeeBot extends Cell {
     constructor(x, y, owner, abilityTier) {
-        const stats = ABILITY_STATS['gatherer'].tiers[abilityTier - 1];
-        super(x, y, stats.cost, owner.color, ""); 
+        super(x, y, EMPLOYEE_BOT_MASS, owner.color, ""); 
         this.owner = owner;
         this.abilityTier = abilityTier;
-        this.initialMass = stats.cost;
+        const stats = ABILITY_STATS['gatherer'].tiers[this.abilityTier - 1];
 
         this.state = 'gathering'; // States: 'gathering', 'returning'
         this.targetFood = null;
@@ -419,6 +419,7 @@ class EmployeeBot extends Cell {
         this.maxTrips = stats.max_trips;
         this.lifespan = 120 * 60; // 2-minute lifespan
         this.isSpawning = true;
+        this.wanderTarget = null;
         setTimeout(() => this.isSpawning = false, 1000);
     }
 
@@ -431,51 +432,43 @@ class EmployeeBot extends Cell {
         
         if (this.isSpawning) return;
 
-        const visionRange = 1000;
-        const threats = allCells
-            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof EmployeeBot) && !playerCells.includes(c))
-            .map(c => ({ cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y) }))
-            .filter(c => c.dist < visionRange * 0.5);
-
+        // --- Determine Target ---
+        let targetPos = null;
         if (this.state === 'gathering') {
             if (this.carriedMass >= this.capacity) {
                 this.state = 'returning';
                 this.targetFood = null;
-                return;
             }
 
             if (!this.targetFood || !food.includes(this.targetFood)) {
                 const foodInRange = food
                     .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
-                    .filter(f => f.dist < visionRange);
+                    .filter(f => f.dist < 1000);
                 
                 if (foodInRange.length > 0) {
                     this.targetFood = foodInRange.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
-                } else {
-                    if (!this.targetX || Math.hypot(this.x - this.targetX, this.y - this.targetY) < 50) {
-                         this.targetX = this.x + randomInRange(-500, 500);
-                         this.targetY = this.y + randomInRange(-500, 500);
-                    }
                 }
             }
-
+            
             if (this.targetFood) {
-                this.targetX = this.targetFood.x;
-                this.targetY = this.targetFood.y;
+                targetPos = { x: this.targetFood.x, y: this.targetFood.y };
+            } else {
+                if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
+                    this.wanderTarget = {x: this.x + randomInRange(-500, 500), y: this.y + randomInRange(-500, 500)};
+                }
+                targetPos = this.wanderTarget;
             }
         }
 
         if (this.state === 'returning') {
             const ownerCells = playerCells.filter(p => p.mass > 0);
             if (ownerCells.length === 0) {
-                this.mass = 0;
+                this.mass = 0; // Despawn if owner is dead
                 return;
             }
             const closestOwnerCell = ownerCells.map(c => ({cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y)}))
                                                .reduce((a, b) => a.dist < b.dist ? a : b).cell;
-
-            this.targetX = closestOwnerCell.x;
-            this.targetY = closestOwnerCell.y;
+            targetPos = { x: closestOwnerCell.x, y: closestOwnerCell.y };
 
             const distToOwner = Math.hypot(this.x - closestOwnerCell.x, this.y - closestOwnerCell.y);
             if (distToOwner < closestOwnerCell.radius) {
@@ -490,34 +483,44 @@ class EmployeeBot extends Cell {
                 }
             }
         }
-        
-        // Risky AI: Move towards target even if threats are present, but try to dodge.
-        if (threats.length > 0) {
-            const closestThreat = threats.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
-            const angleToTarget = Math.atan2(this.targetY - this.y, this.targetX - this.x);
-            const angleToThreat = Math.atan2(closestThreat.y - this.y, closestThreat.x - this.x);
-            
-            let angleDiff = angleToTarget - angleToThreat;
-            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
-            while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
 
-            // If threat is in the way, dodge sideways
-            const dodgeAngle = angleToTarget + (angleDiff > 0 ? -Math.PI / 2 : Math.PI / 2);
-            this.targetX = this.x + Math.cos(dodgeAngle) * 100;
-            this.targetY = this.y + Math.sin(dodgeAngle) * 100;
+        // --- Steering Behavior Calculation ---
+        let seekVector = { x: 0, y: 0 };
+        if (targetPos) {
+            seekVector.x = targetPos.x - this.x;
+            seekVector.y = targetPos.y - this.y;
         }
+
+        let fleeVector = { x: 0, y: 0 };
+        const threats = allCells
+            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof EmployeeBot) && !playerCells.includes(c))
+            .map(c => ({ cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y) }))
+            .filter(c => c.dist < this.radius + c.cell.radius + 150); // Dodge range
+
+        if (threats.length > 0) {
+            for (const threat of threats) {
+                const awayX = this.x - threat.cell.x;
+                const awayY = this.y - threat.cell.y;
+                fleeVector.x += awayX / (threat.dist * threat.dist);
+                fleeVector.y += awayY / (threat.dist * threat.dist);
+            }
+        }
+
+        const fleeWeight = 5000;
+        this.targetX = this.x + seekVector.x + fleeVector.x * fleeWeight;
+        this.targetY = this.y + seekVector.y + fleeVector.y * fleeWeight;
 
         this.move();
     }
 
     move() {
-        const maxSpeed = 10;
+        const maxSpeed = 12; // Increased speed
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
         const distance = Math.hypot(dx, dy);
         let targetVx = 0, targetVy = 0;
 
-        if (distance > this.radius / 2 && distance > 0) {
+        if (distance > 0) {
             targetVx = (dx / distance) * maxSpeed;
             targetVy = (dy / distance) * maxSpeed;
         }
@@ -538,7 +541,7 @@ class EmployeeBot extends Cell {
         ctx.fill();
 
         // Inner pulsating core
-        const pulse = 1 + Math.sin(Date.now() * 0.01) * 0.2;
+        const pulse = 1 + Math.sin(this.frame_count * 0.1) * 0.2;
         ctx.beginPath();
         ctx.arc(screenX, screenY, scaledRadius * 0.5 * pulse, 0, Math.PI * 2);
         ctx.fillStyle = 'white';
