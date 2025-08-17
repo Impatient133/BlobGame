@@ -95,9 +95,9 @@ const ABILITY_STATS = {
         'name': 'Mass Siphon', 'key_name': 'Hold LMB', 'costs': [300, 1500, 2500],
         'description': 'Hold Left Click to siphon food into a charged shot. Release to fire.',
         'tiers': [
-            {'desc': 'Damage: 1.5x siphoned mass. Small range/cone.', 'multiplier': 1.5, 'siphonRange': 400, 'siphonCone': Math.PI / 6},
-            {'desc': 'Damage: 2.5x siphoned mass. Medium range/cone.', 'multiplier': 2.5, 'siphonRange': 550, 'siphonCone': Math.PI / 4},
-            {'desc': 'Damage: 3.5x siphoned mass. Large range/cone.', 'multiplier': 3.5, 'siphonRange': 700, 'siphonCone': Math.PI / 3},
+            {'desc': 'Unleash a short-range blast (1.5x damage).', 'multiplier': 1.5, 'siphonRange': 400, 'siphonCone': Math.PI / 6, 'blastRange': 300, 'blastCone': Math.PI / 5},
+            {'desc': 'Blast has wider AoE and increased range (2.5x damage).', 'multiplier': 2.5, 'siphonRange': 550, 'siphonCone': Math.PI / 4, 'blastRange': 450, 'blastCone': Math.PI / 3},
+            {'desc': 'Greatly increases AoE. High charge fires a BEAM (3.5x damage).', 'multiplier': 3.5, 'siphonRange': 700, 'siphonCone': Math.PI / 3, 'blastRange': 600, 'blastCone': Math.PI / 2.5, 'beamThreshold': 100, 'beamWidth': 50},
         ]
     },
     'regroup': {
@@ -425,50 +425,6 @@ class EjectedMass extends Cell {
     update() {
         this.updatePosition();
         this.decayTimer--;
-    }
-}
-
-class SiphonProjectile extends Cell {
-    constructor(x, y, mass, color, velocityX, velocityY) {
-        super(x, y, mass, color);
-        this.velocityX = velocityX;
-        this.velocityY = velocityY;
-        this.lifespan = 180; // 3 seconds
-        this.stretch = 1.0;
-        this.animTimer = 0;
-    }
-
-    update() {
-        this.updatePosition();
-        this.lifespan--;
-
-        // Animation: stretch out quickly, then slowly return to normal
-        this.animTimer++;
-        if (this.animTimer < 15) {
-            this.stretch = lerp(this.stretch, 4.0, 0.2);
-        } else {
-            this.stretch = lerp(this.stretch, 1.0, 0.05);
-        }
-    }
-
-    draw(ctx, camera) {
-        const { screenX, screenY } = camera.worldToScreen(this.x, this.y);
-        const scaledRadius = this.radius * camera.zoom;
-
-        if (scaledRadius < 2) return;
-
-        ctx.save();
-        ctx.translate(screenX, screenY);
-        
-        const angle = Math.atan2(this.velocityY, this.velocityX);
-        ctx.rotate(angle);
-
-        ctx.beginPath();
-        ctx.ellipse(0, 0, scaledRadius * this.stretch, scaledRadius / this.stretch, 0, 0, Math.PI * 2);
-        
-        ctx.fillStyle = this.color;
-        ctx.fill();
-        ctx.restore();
     }
 }
 
@@ -880,7 +836,7 @@ class Game {
         this.ejectCooldown = 0;
         this.botSpawnTimer = 0;
         this.foodSpawnTimer = 0;
-        this.siphonProjectiles = [];
+        this.beamEffect = null;
 
         // Mass Siphon ability state
         this.isSiphoning = false;
@@ -916,7 +872,6 @@ class Game {
         this.particles = [];
         this.targetedMass = [];
         this.webProjectiles = [];
-        this.siphonProjectiles = [];
         this.webs = [];
         this.creepCtx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
         
@@ -1137,6 +1092,10 @@ class Game {
     updateGameState() {
         if (this.upgradeMenuOpen) return;
 
+        if (this.beamEffect && this.beamEffect.life > 0) {
+            this.beamEffect.life--;
+        }
+
         // Update timers
         if (this.warningTimer > 0) this.warningTimer--;
         for (const key in this.abilityCooldowns) {
@@ -1167,7 +1126,7 @@ class Game {
             bot.updateAi(allEaters, this.food, this.playerCells, this.camera);
         });
         
-        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.webProjectiles, ...this.siphonProjectiles].forEach(cell => cell.update());
+        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.webProjectiles].forEach(cell => cell.update());
         this.particles.forEach(p => p.update());
         this.targetedMass.forEach(tm => tm.update());
         this.webs.forEach(web => web.update(this.bots, this.food, this.frame_count, this.creepCtx));
@@ -1187,7 +1146,6 @@ class Game {
             }
         });
         
-        // **FIX**: Ensure bots destroyed by purge are properly removed to erase their creep
         const botsToPurge = this.bots.filter(b => b.mass <= 1);
         botsToPurge.forEach(bot => this.removeCell(bot));
         this.bots = this.bots.filter(b => b.mass > 1);
@@ -1256,7 +1214,6 @@ class Game {
         this.particles = this.particles.filter(p => p.lifespan > 0);
         this.targetedMass = this.targetedMass.filter(tm => tm.lifespan > 0);
         this.webProjectiles = this.webProjectiles.filter(p => p.decayTimer > 0);
-        this.siphonProjectiles = this.siphonProjectiles.filter(p => p.lifespan > 0 && p.mass > 1);
         this.webs = this.webs.filter(w => w.webbedBots.size > 0);
         
         this.camera.update(this.playerCells);
@@ -1273,28 +1230,6 @@ class Game {
                 }
             }
             return true;
-        });
-
-        this.siphonProjectiles = this.siphonProjectiles.filter(proj => {
-            const allTargets = [...this.bots, ...this.playerCells];
-            for (const target of allTargets) {
-                 if (target instanceof PlayerCell && this.playerCells.includes(proj.origin)) continue;
-
-                const dist = Math.hypot(proj.x - target.x, proj.y - target.y);
-                if (dist < proj.radius + target.radius) {
-                    target.mass -= proj.mass;
-                    if (target.mass < 1 && target instanceof BotCell) {
-                        this.removeCell(target);
-                    }
-                     for (let i = 0; i < 20; i++) {
-                        const angle = Math.random() * 2 * Math.PI;
-                        const speed = Math.random() * 5;
-                        this.particles.push(new Particle(proj.x, proj.y, Math.cos(angle) * speed, Math.sin(angle) * speed, 4, SIPHON_COLOR, 40));
-                    }
-                    return false; // Projectile is consumed
-                }
-            }
-            return true; // Projectile continues
         });
     }
     
@@ -1350,26 +1285,70 @@ class Game {
 
         const level = this.abilityLevels['mass_siphon'];
         const stats = ABILITY_STATS['mass_siphon'].tiers[level - 1];
+        const damage = this.siphonedMass * stats.multiplier;
 
         const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
         const { worldX, worldY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
-
         const dx = worldX - playerCell.x;
         const dy = worldY - playerCell.y;
-        const dist = Math.hypot(dx, dy);
+        const angleToMouse = Math.atan2(dy, dx);
 
-        if (dist === 0) return;
+        const allTargets = [...this.bots, ...this.playerCells];
+        
+        // Tier 3 Beam Logic
+        if (level === 3 && this.siphonedMass >= stats.beamThreshold) {
+            this.beamEffect = {
+                life: 15,
+                x1: playerCell.x, y1: playerCell.y,
+                x2: playerCell.x + Math.cos(angleToMouse) * WORLD_WIDTH, // Make it super long
+                y2: playerCell.y + Math.sin(angleToMouse) * WORLD_WIDTH,
+                width: stats.beamWidth
+            };
+            
+            allTargets.forEach(target => {
+                if (this.playerCells.includes(target)) return;
 
-        const shotMass = this.siphonedMass * stats.multiplier;
-        const shotSpeed = 35;
+                // Simple line-segment vs circle collision
+                const distToLine = Math.abs((this.beamEffect.y2 - this.beamEffect.y1) * target.x - (this.beamEffect.x2 - this.beamEffect.x1) * target.y + this.beamEffect.x2 * this.beamEffect.y1 - this.beamEffect.y2 * this.beamEffect.x1) / Math.hypot(this.beamEffect.y2 - this.beamEffect.y1, this.beamEffect.x2 - this.beamEffect.x1);
+                const dot = (target.x - playerCell.x) * dx + (target.y - playerCell.y) * dy;
 
-        const velX = (dx / dist) * shotSpeed;
-        const velY = (dy / dist) * shotSpeed;
+                if (distToLine < target.radius + stats.beamWidth / 2 && dot > 0) {
+                    target.mass -= damage;
+                     if (target.mass < 1 && target instanceof BotCell) {
+                        this.removeCell(target);
+                    }
+                }
+            });
 
-        const proj = new SiphonProjectile(this.siphonChargePoint.x, this.siphonChargePoint.y, shotMass, SIPHON_COLOR, velX, velY);
-        proj.origin = playerCell; // To prevent hitting self
-        this.siphonProjectiles.push(proj);
+        } else { // Normal Blast Logic
+            allTargets.forEach(target => {
+                if (this.playerCells.includes(target)) return;
+                
+                const dist = Math.hypot(playerCell.x - target.x, playerCell.y - target.y);
+                if (dist < stats.blastRange + target.radius) {
+                    const angleToTarget = Math.atan2(target.y - playerCell.y, target.x - playerCell.x);
+                    let angleDiff = Math.abs(angleToMouse - angleToTarget);
+                    if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
 
+                    if (angleDiff < stats.blastCone / 2) {
+                        target.mass -= damage;
+                         if (target.mass < 1 && target instanceof BotCell) {
+                            this.removeCell(target);
+                        }
+                    }
+                }
+            });
+            // Visuals for blast
+             for (let i = 0; i < Math.min(100, this.siphonedMass); i++) {
+                const angle = angleToMouse + randomInRange(-stats.blastCone / 2, stats.blastCone / 2);
+                const speed = randomInRange(2, 10);
+                const dist = randomInRange(0, stats.blastRange);
+                const pX = playerCell.x + Math.cos(angle) * dist;
+                const pY = playerCell.y + Math.sin(angle) * dist;
+                this.particles.push(new Particle(pX, pY, Math.cos(angle) * speed, Math.sin(angle) * speed, 3, SIPHON_COLOR, 30));
+            }
+        }
+        
         this.siphonedMass = 0;
     }
     
@@ -1609,7 +1588,7 @@ class Game {
             }
         });
 
-        const allObjects = [...this.food, ...this.ejectedMass, ...this.bots, ...this.playerCells, ...this.targetedMass, ...this.webProjectiles, ...this.siphonProjectiles];
+        const allObjects = [...this.food, ...this.ejectedMass, ...this.bots, ...this.playerCells, ...this.targetedMass, ...this.webProjectiles];
         allObjects.sort((a, b) => a.mass - b.mass);
         allObjects.forEach(obj => obj.draw(ctx, this.camera));
         
@@ -1617,6 +1596,23 @@ class Game {
         
         this.webs.forEach(web => web.draw(ctx, this.camera, this.frame_count));
         
+        if (this.beamEffect && this.beamEffect.life > 0) {
+            const { screenX: x1, screenY: y1 } = this.camera.worldToScreen(this.beamEffect.x1, this.beamEffect.y1);
+            const { screenX: x2, screenY: y2 } = this.camera.worldToScreen(this.beamEffect.x2, this.beamEffect.y2);
+            const width = this.beamEffect.width * this.camera.zoom * (this.beamEffect.life / 15);
+            
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = `rgba(137, 207, 240, ${0.1 + (this.beamEffect.life / 15) * 0.9})`;
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.stroke();
+            ctx.lineWidth = width / 2;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 + (this.beamEffect.life / 15) * 0.9})`;
+            ctx.stroke();
+        }
+
         if (this.playerIsDead) { 
             this.drawDeathScreen();
         } else if (this.playerCells && this.playerCells.length > 0) { 
