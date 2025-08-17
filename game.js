@@ -80,7 +80,7 @@ const NORMAL_SPAWN_RATE = 90;
 // --- Ability System Settings ---
 const ABILITY_STATS = {
     'parasite_shot': {
-        'name': 'Parasite Shot', 'key_name': '1', 'costs': [300, 1500, 2500],
+        'name': 'Parasite Shot', 'key_name': '1', 'costs': [150, 750, 1250],
         'description': 'Fire a projectile that infects a bot, causing it to spread to others.',
         'tiers': [
             {'desc': 'Infect up to 3 bots, 1 tentacle per bot.', 'cooldown': 10 * 60, 'max_tendrils': 1, 'max_spread': 3},
@@ -89,7 +89,7 @@ const ABILITY_STATS = {
         ]
     },
     'gatherer': {
-        'name': 'Gatherer', 'key_name': '2', 'costs': [300, 1500, 2500],
+        'name': 'Gatherer', 'key_name': '2', 'costs': [150, 750, 1250],
         'description': 'Spend mass to spawn an employee bot that gathers food for you.',
         'tiers': [
             {'desc': 'Max 3 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 3, 'max_trips': 2, 'capacity': 25, 'cooldown': 2 * 60},
@@ -98,7 +98,7 @@ const ABILITY_STATS = {
         ]
     },
     'regroup': {
-        'name': 'Regroup Mass', 'key_name': '3', 'costs': [300, 1500, 2500],
+        'name': 'Regroup Mass', 'key_name': '3', 'costs': [150, 750, 1250],
         'description': 'Rapidly pull all of your mass into a single cell.',
         'tiers': [
             {'desc': '15 second cooldown.', 'cooldown': 15 * 60},
@@ -107,7 +107,7 @@ const ABILITY_STATS = {
         ]
     },
     'mass_purge': {
-        'name': 'Mass Purge', 'key_name': '4', 'costs': [300, 1500, 2500],
+        'name': 'Mass Purge', 'key_name': '4', 'costs': [150, 750, 1250],
         'description': 'Unleash a viral purge that decays a percentage of all cells on the map.',
         'tiers': [
             {'desc': 'Purge affects 20% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.2, 'decay_rate': 0.01},
@@ -1737,9 +1737,35 @@ class Game {
         }
         
         ctx.font = '20px arial';
-        ctx.fillStyle = FONT_COLOR;
+        
+        // Check if any upgrade is affordable
+        let canUpgrade = false;
+        for (const key of Object.keys(this.abilityLevels)) {
+            const level = this.abilityLevels[key];
+            if (level < 3) {
+                const cost = ABILITY_STATS[key].costs[level];
+                if (totalMass >= cost) {
+                    canUpgrade = true;
+                    break;
+                }
+            }
+        }
+
+        if (canUpgrade) {
+            const glow = Math.abs(Math.sin(this.frame_count * 0.05)) * 15;
+            ctx.shadowColor = UI_GOLD;
+            ctx.shadowBlur = glow;
+            ctx.fillStyle = UI_GOLD;
+        } else {
+            ctx.fillStyle = FONT_COLOR;
+        }
+        
         ctx.fillText("Press 'U' for Upgrades", 10, SCREEN_HEIGHT - 30);
         
+        // Reset shadow and color for other HUD elements
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = FONT_COLOR;
+
         this.drawScoreboard();
         this.drawMinimap();
         this.drawCooldowns();
