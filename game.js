@@ -92,9 +92,9 @@ const ABILITY_STATS = {
         'name': 'Gatherer', 'key_name': '2', 'costs': [300, 1500, 2500],
         'description': 'Spend mass to spawn an employee bot that gathers food for you.',
         'tiers': [
-            {'desc': 'Max 3 employees. Cost: 50 mass.', 'cost': 50, 'max_employees': 3, 'max_trips': 2, 'capacity': 10, 'cooldown': 2 * 60},
-            {'desc': 'Max 6 employees. Cost: 75 mass.', 'cost': 75, 'max_employees': 6, 'max_trips': 4, 'capacity': 15, 'cooldown': 2 * 60},
-            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 6, 'capacity': 20, 'cooldown': 2 * 60},
+            {'desc': 'Max 3 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 3, 'max_trips': 2, 'capacity': 25, 'cooldown': 2 * 60},
+            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 4, 'capacity': 35, 'cooldown': 2 * 60},
+            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 6, 'capacity': 50, 'cooldown': 2 * 60},
         ]
     },
     'regroup': {
@@ -405,11 +405,11 @@ class BotCell extends Cell {
 
 class EmployeeBot extends Cell {
     constructor(x, y, owner, abilityTier) {
-        // Use the owner's main color for the employee
-        super(x, y, 15, owner.color, ""); 
+        const stats = ABILITY_STATS['gatherer'].tiers[abilityTier - 1];
+        super(x, y, stats.cost, owner.color, ""); 
         this.owner = owner;
         this.abilityTier = abilityTier;
-        const stats = ABILITY_STATS['gatherer'].tiers[this.abilityTier - 1];
+        this.initialMass = stats.cost;
 
         this.state = 'gathering'; // States: 'gathering', 'returning'
         this.targetFood = null;
@@ -417,30 +417,25 @@ class EmployeeBot extends Cell {
         this.capacity = stats.capacity;
         this.tripsMade = 0;
         this.maxTrips = stats.max_trips;
-        this.lifespan = 120 * 60; // 2-minute lifespan to prevent them from staying forever
+        this.lifespan = 120 * 60; // 2-minute lifespan
+        this.isSpawning = true;
+        setTimeout(() => this.isSpawning = false, 1000);
     }
 
     updateAi(allCells, food, playerCells) {
         this.lifespan--;
         if (this.lifespan <= 0) {
-            this.mass = 0; // Expire by setting mass to 0
+            this.mass = 0;
             return;
         }
+        
+        if (this.isSpawning) return;
 
-        const visionRange = 800;
-        // Threats are any non-employee cells that can eat this employee
+        const visionRange = 1000;
         const threats = allCells
             .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof EmployeeBot) && !playerCells.includes(c))
             .map(c => ({ cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y) }))
-            .filter(c => c.dist < visionRange * 0.75);
-
-        if (threats.length > 0) {
-            const closestThreat = threats.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
-            this.targetX = this.x + (this.x - closestThreat.x);
-            this.targetY = this.y + (this.y - closestThreat.y);
-            this.move();
-            return;
-        }
+            .filter(c => c.dist < visionRange * 0.5);
 
         if (this.state === 'gathering') {
             if (this.carriedMass >= this.capacity) {
@@ -449,7 +444,6 @@ class EmployeeBot extends Cell {
                 return;
             }
 
-            // Find new food if current target is gone
             if (!this.targetFood || !food.includes(this.targetFood)) {
                 const foodInRange = food
                     .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
@@ -458,7 +452,6 @@ class EmployeeBot extends Cell {
                 if (foodInRange.length > 0) {
                     this.targetFood = foodInRange.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
                 } else {
-                    // Wander if no food is in sight
                     if (!this.targetX || Math.hypot(this.x - this.targetX, this.y - this.targetY) < 50) {
                          this.targetX = this.x + randomInRange(-500, 500);
                          this.targetY = this.y + randomInRange(-500, 500);
@@ -474,11 +467,10 @@ class EmployeeBot extends Cell {
 
         if (this.state === 'returning') {
             const ownerCells = playerCells.filter(p => p.mass > 0);
-            if (ownerCells.length === 0) { // Owner died
-                this.mass = 0; // Employee despawns
+            if (ownerCells.length === 0) {
+                this.mass = 0;
                 return;
             }
-            // Find the closest player cell to return to
             const closestOwnerCell = ownerCells.map(c => ({cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y)}))
                                                .reduce((a, b) => a.dist < b.dist ? a : b).cell;
 
@@ -491,18 +483,35 @@ class EmployeeBot extends Cell {
                 this.carriedMass = 0;
                 this.tripsMade++;
                 if (this.tripsMade >= this.maxTrips) {
-                    this.mass = 0; // Expire after final trip
+                    closestOwnerCell.mass += this.mass; // Deposit own mass on last trip
+                    this.mass = 0; 
                 } else {
                     this.state = 'gathering';
                 }
             }
+        }
+        
+        // Risky AI: Move towards target even if threats are present, but try to dodge.
+        if (threats.length > 0) {
+            const closestThreat = threats.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
+            const angleToTarget = Math.atan2(this.targetY - this.y, this.targetX - this.x);
+            const angleToThreat = Math.atan2(closestThreat.y - this.y, closestThreat.x - this.x);
+            
+            let angleDiff = angleToTarget - angleToThreat;
+            while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+            while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+
+            // If threat is in the way, dodge sideways
+            const dodgeAngle = angleToTarget + (angleDiff > 0 ? -Math.PI / 2 : Math.PI / 2);
+            this.targetX = this.x + Math.cos(dodgeAngle) * 100;
+            this.targetY = this.y + Math.sin(dodgeAngle) * 100;
         }
 
         this.move();
     }
 
     move() {
-        const maxSpeed = 8;
+        const maxSpeed = 10;
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
         const distance = Math.hypot(dx, dy);
@@ -512,24 +521,28 @@ class EmployeeBot extends Cell {
             targetVx = (dx / distance) * maxSpeed;
             targetVy = (dy / distance) * maxSpeed;
         }
-        const lerpFactor = 0.15;
+        const lerpFactor = 0.2;
         this.velocityX += (targetVx - this.velocityX) * lerpFactor;
         this.velocityY += (targetVy - this.velocityY) * lerpFactor;
     }
 
     draw(ctx, camera) {
-        super.draw(ctx, camera);
         const { screenX, screenY } = camera.worldToScreen(this.x, this.y);
         const scaledRadius = this.radius * camera.zoom;
-        
         if (scaledRadius < 2) return;
 
-        // Draw a white outline to distinguish it as an employee
+        // Main body
         ctx.beginPath();
         ctx.arc(screenX, screenY, scaledRadius, 0, Math.PI * 2);
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = Math.max(1, 2 * camera.zoom);
-        ctx.stroke();
+        ctx.fillStyle = this.color;
+        ctx.fill();
+
+        // Inner pulsating core
+        const pulse = 1 + Math.sin(Date.now() * 0.01) * 0.2;
+        ctx.beginPath();
+        ctx.arc(screenX, screenY, scaledRadius * 0.5 * pulse, 0, Math.PI * 2);
+        ctx.fillStyle = 'white';
+        ctx.fill();
     }
 
     update() {
@@ -620,6 +633,29 @@ class TargetedMass extends Cell {
         this.updatePosition();
     }
 }
+
+class CoalescingMass extends TargetedMass {
+    update() {
+        if (this.target) {
+            const dx = this.target.x - this.x;
+            const dy = this.target.y - this.y;
+            const distance = Math.hypot(dx, dy);
+            if (distance < 10) {
+                this.mass = 0; // Disappear when close
+            } else {
+                const pullStrength = 20;
+                const lerpFactor = 0.2;
+                const targetVx = (dx / distance) * pullStrength;
+                const targetVy = (dy / distance) * pullStrength;
+                this.velocityX += (targetVx - this.velocityX) * lerpFactor;
+                this.velocityY += (targetVy - this.velocityY) * lerpFactor;
+            }
+        }
+        this.lifespan--;
+        this.updatePosition();
+    }
+}
+
 
 class ReformMass extends TargetedMass {
     update() {
@@ -1164,12 +1200,25 @@ class Game {
         playerCell.updateRadius();
         
         const spawnAngle = Math.random() * 2 * Math.PI;
-        const spawnDist = playerCell.radius + 20;
+        const spawnDist = playerCell.radius + 30;
         const spawnX = playerCell.x + Math.cos(spawnAngle) * spawnDist;
         const spawnY = playerCell.y + Math.sin(spawnAngle) * spawnDist;
+        
+        const spawnPoint = {x: spawnX, y: spawnY};
 
-        const newEmployee = new EmployeeBot(spawnX, spawnY, playerCell, level);
-        this.employees.push(newEmployee);
+        const numChunks = 10;
+        const massPerChunk = cost / numChunks;
+        for (let i = 0; i < numChunks; i++) {
+            const offsetX = randomInRange(-playerCell.radius, playerCell.radius) * 0.7;
+            const offsetY = randomInRange(-playerCell.radius, playerCell.radius) * 0.7;
+            const newLiquid = new CoalescingMass(playerCell.x + offsetX, playerCell.y + offsetY, massPerChunk, playerCell.color, spawnPoint);
+            this.targetedMass.push(newLiquid);
+        }
+
+        setTimeout(() => {
+            const newEmployee = new EmployeeBot(spawnX, spawnY, playerCell, level);
+            this.employees.push(newEmployee);
+        }, 500); // Delay spawn to allow for animation
 
         this.abilityCooldowns['gatherer'] = stats.cooldown;
     }
@@ -1316,6 +1365,7 @@ class Game {
             for (const consumable of [...this.food, ...this.ejectedMass, ...this.targetedMass]) {
                 if (eatenThisFrame.has(consumable)) continue;
                 if (eater instanceof PlayerCell && consumable instanceof TargetedMass && consumable.playerEatCooldown > 0) continue;
+                if (eater instanceof PlayerCell && consumable instanceof EmployeeBot) continue; // Player can't eat employees
                 
                 if (this.checkEat(eater, consumable)) {
                     if (eater instanceof EmployeeBot) {
@@ -1332,6 +1382,8 @@ class Game {
             // Handle eating other cells
             for (const otherEater of allEaters) {
                 if (eater === otherEater || eatenThisFrame.has(otherEater)) continue;
+                if (eater instanceof PlayerCell && otherEater instanceof EmployeeBot) continue; // Player can't eat employees
+                
                 if (this.checkEat(eater, otherEater)) {
                     eater.mass += otherEater.mass;
                     eatenThisFrame.add(otherEater);
@@ -1355,14 +1407,13 @@ class Game {
         });
 
         this.ejectedMass = this.ejectedMass.filter(m => !eatenThisFrame.has(m));
-        this.targetedMass = this.targetedMass.filter(tm => !eatenThisFrame.has(tm));
+        this.targetedMass = this.targetedMass.filter(tm => !eatenThisFrame.has(tm) && tm.mass > 0);
         this.employees = this.employees.filter(e => e.mass > 1 && !eatenThisFrame.has(e));
 
 
         [...this.playerCells, ...this.bots, ...this.employees].forEach(cell => cell.updateRadius());
 
         this.particles = this.particles.filter(p => p.lifespan > 0);
-        this.targetedMass = this.targetedMass.filter(tm => tm.lifespan > 0);
         this.webProjectiles = this.webProjectiles.filter(p => p.decayTimer > 0);
         this.webs = this.webs.filter(w => w.webbedBots.size > 0);
         
@@ -1708,19 +1759,22 @@ class Game {
 
             const x = startX - i * (iconSize + margin);
             const y = startY;
+            const ability = ABILITY_STATS[key];
             
             ctx.fillStyle = UI_GRAY;
             ctx.fillRect(x, y, iconSize, iconSize);
 
-            ctx.font = 'bold 24px arial';
+            // Draw Ability Name (first word)
+            const abilityName = ability.name.split(' ')[0];
+            ctx.font = '12px arial';
             ctx.fillStyle = WHITE;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(ABILITY_STATS[key].key_name, x + iconSize / 2, y + iconSize / 2);
+            ctx.fillText(abilityName, x + iconSize / 2, y + 10);
 
             const cooldown = this.abilityCooldowns[key];
             if (cooldown > 0) {
-                const stats = ABILITY_STATS[key].tiers[level - 1];
+                const stats = ability.tiers[level - 1];
                 let maxCooldown = stats.cooldown || 1;
                 if (key === 'mass_purge') maxCooldown = 30 * 60;
                 
@@ -1730,10 +1784,16 @@ class Game {
                     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                     ctx.fillRect(x, y, iconSize, overlayHeight);
                     
-                    ctx.font = '20px arial';
+                    // Draw Cooldown Text
+                    ctx.font = 'bold 20px arial';
                     ctx.fillStyle = WHITE;
-                    ctx.fillText(`${(cooldown / 60).toFixed(1)}`, x + iconSize / 2, y + iconSize / 2 - 10);
+                    ctx.fillText(`${(cooldown / 60).toFixed(1)}`, x + iconSize / 2, y + iconSize / 2 + 5);
                 }
+            } else {
+                // Draw Key Name when not on cooldown
+                ctx.font = 'bold 24px arial';
+                ctx.fillStyle = WHITE;
+                ctx.fillText(ability.key_name, x + iconSize / 2, y + iconSize / 2 + 5);
             }
             
             ctx.strokeStyle = WHITE;
