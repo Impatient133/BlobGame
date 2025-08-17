@@ -93,9 +93,9 @@ const ABILITY_STATS = {
         'name': 'Gatherer', 'key_name': '2', 'costs': [150, 750, 1250],
         'description': 'Spend mass to spawn an employee bot that gathers food for you.',
         'tiers': [
-            {'desc': 'Max 3 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 3, 'max_trips': 2, 'capacity': 25, 'cooldown': 2 * 60},
-            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 4, 'capacity': 35, 'cooldown': 2 * 60},
-            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 6, 'capacity': 50, 'cooldown': 2 * 60},
+            {'desc': 'Max 3 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 3, 'max_trips': 3, 'capacity': 19, 'cooldown': 2 * 60},
+            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 5, 'capacity': 26, 'cooldown': 2 * 60},
+            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 7, 'capacity': 38, 'cooldown': 2 * 60},
         ]
     },
     'regroup': {
@@ -432,6 +432,10 @@ class EmployeeBot extends Cell {
         
         if (this.isSpawning) return;
 
+        // --- Identify all potential threats on the map first ---
+        const allThreats = allCells
+            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof EmployeeBot) && !playerCells.includes(c));
+
         // --- Determine Target ---
         let targetPos = null;
         if (this.state === 'gathering') {
@@ -440,13 +444,28 @@ class EmployeeBot extends Cell {
                 this.targetFood = null;
             }
 
+            // --- A. Constant Motion & Smart Targeting ---
             if (!this.targetFood || !food.includes(this.targetFood)) {
                 const foodInRange = food
                     .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
                     .filter(f => f.dist < 1000);
                 
-                if (foodInRange.length > 0) {
-                    this.targetFood = foodInRange.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
+                // Filter out food pellets that are too close to any threat.
+                const safeFood = foodInRange.filter(f => {
+                    for (const threat of allThreats) {
+                        if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
+                            return false; // This food is unsafe, ignore it.
+                        }
+                    }
+                    return true; // This food is safe.
+                });
+
+                if (safeFood.length > 0) {
+                    // From the list of safe food, pick the one closest to the bot.
+                    this.targetFood = safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
+                } else {
+                    // If no food is safe, don't target anything and wander instead.
+                    this.targetFood = null;
                 }
             }
             
@@ -463,7 +482,7 @@ class EmployeeBot extends Cell {
         if (this.state === 'returning') {
             const ownerCells = playerCells.filter(p => p.mass > 0);
             if (ownerCells.length === 0) {
-                this.mass = 0; // Despawn if owner is dead
+                this.mass = 0;
                 return;
             }
             const closestOwnerCell = ownerCells.map(c => ({cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y)}))
@@ -476,7 +495,7 @@ class EmployeeBot extends Cell {
                 this.carriedMass = 0;
                 this.tripsMade++;
                 if (this.tripsMade >= this.maxTrips) {
-                    closestOwnerCell.mass += this.mass; // Deposit own mass on last trip
+                    closestOwnerCell.mass += this.mass;
                     this.mass = 0; 
                 } else {
                     this.state = 'gathering';
@@ -484,7 +503,7 @@ class EmployeeBot extends Cell {
             }
         }
 
-        // --- Steering Behavior Calculation ---
+        // --- B. Stronger Threat Avoidance ---
         let seekVector = { x: 0, y: 0 };
         if (targetPos) {
             seekVector.x = targetPos.x - this.x;
@@ -492,13 +511,14 @@ class EmployeeBot extends Cell {
         }
 
         let fleeVector = { x: 0, y: 0 };
-        const threats = allCells
-            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof EmployeeBot) && !playerCells.includes(c))
+        // Increased the bot's awareness range from 150 to 250.
+        const dodgeRange = 250; 
+        const threatsInRange = allThreats
             .map(c => ({ cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y) }))
-            .filter(c => c.dist < this.radius + c.cell.radius + 150); // Dodge range
+            .filter(c => c.dist < this.radius + c.cell.radius + dodgeRange);
 
-        if (threats.length > 0) {
-            for (const threat of threats) {
+        if (threatsInRange.length > 0) {
+            for (const threat of threatsInRange) {
                 const awayX = this.x - threat.cell.x;
                 const awayY = this.y - threat.cell.y;
                 const inverseSquare = 1 / (threat.dist * threat.dist);
@@ -507,7 +527,8 @@ class EmployeeBot extends Cell {
             }
         }
 
-        const fleeWeight = 5000;
+        // Increased the power of the flee behavior to prioritize safety.
+        const fleeWeight = 8000;
         this.targetX = this.x + seekVector.x + fleeVector.x * fleeWeight;
         this.targetY = this.y + seekVector.y + fleeVector.y * fleeWeight;
 
