@@ -14,6 +14,9 @@ class Cell {
         this.radius = getRadius(this.mass);
         this.velocityX = 0;
         this.velocityY = 0;
+        // Properties for the new slow effect
+        this.slowTimer = 0;
+        this.speedMultiplier = 1.0;
     }
 
     updateRadius() {
@@ -26,27 +29,51 @@ class Cell {
             this.updateRadius();
         }
 
-        let nextX = this.x + this.velocityX;
-        let nextY = this.y + this.velocityY;
+        // Handle slow effect timer and multiplier
+        if (this.slowTimer > 0) {
+            this.slowTimer--;
+            this.speedMultiplier = 0.5; // 50% slow
+        } else {
+            this.speedMultiplier = 1.0;
+        }
 
+        // --- ICE WALL COLLISION LOGIC ---
         for (const wall of iceWalls) {
-            const closestX = Math.max(wall.x - wall.width / 2, Math.min(nextX, wall.x + wall.width / 2));
-            const closestY = Math.max(wall.y - wall.height / 2, Math.min(nextY, wall.y + wall.height / 2));
-            const distance = Math.hypot(nextX - closestX, nextY - closestY);
+            const nextX = this.x + this.velocityX;
+            const nextY = this.y + this.velocityY;
+            const relativeX = nextX - wall.x;
+            const relativeY = nextY - wall.y;
+            const cosAngle = Math.cos(wall.angle);
+            const sinAngle = Math.sin(wall.angle);
+            const rotatedX = relativeX * cosAngle + relativeY * sinAngle;
+            const rotatedY = -relativeX * sinAngle + relativeY * cosAngle;
+            const halfWidth = wall.width / 2;
+            const halfHeight = wall.height / 2;
+            const closestX = Math.max(-halfWidth, Math.min(rotatedX, halfWidth));
+            const closestY = Math.max(-halfHeight, Math.min(rotatedY, halfHeight));
+            const distance = Math.hypot(rotatedX - closestX, rotatedY - closestY);
 
             if (distance < this.radius) {
-                const dx = nextX - this.x;
-                const dy = nextY - this.y;
-                if (Math.abs(dx) > Math.abs(dy)) {
-                   this.velocityX = 0;
-                } else {
-                   this.velocityY = 0;
+                const localNormalX = rotatedX - closestX;
+                const localNormalY = rotatedY - closestY;
+                let worldNormalX = localNormalX * cosAngle - localNormalY * sinAngle;
+                let worldNormalY = localNormalX * sinAngle + localNormalY * cosAngle;
+                const normalMag = Math.hypot(worldNormalX, worldNormalY);
+                if (normalMag > 0) {
+                  worldNormalX /= normalMag;
+                  worldNormalY /= normalMag;
+                }
+                const dotProduct = this.velocityX * worldNormalX + this.velocityY * worldNormalY;
+                if (dotProduct < 0) {
+                    this.velocityX -= dotProduct * worldNormalX;
+                    this.velocityY -= dotProduct * worldNormalY;
                 }
             }
         }
         
-        this.x += this.velocityX;
-        this.y += this.velocityY;
+        // Apply velocity, scaled by the speed multiplier
+        this.x += this.velocityX * this.speedMultiplier;
+        this.y += this.velocityY * this.speedMultiplier;
 
         this.velocityX *= FRICTION;
         this.velocityY *= FRICTION;
@@ -57,8 +84,6 @@ class Cell {
     draw(ctx, camera) {
         const { screenX, screenY } = camera.worldToScreen(this.x, this.y);
         const scaledRadius = this.radius * camera.zoom;
-
-        // Use the canvas context to get screen dimensions, avoiding global dependency
         const SCREEN_WIDTH = ctx.canvas.width;
         const SCREEN_HEIGHT = ctx.canvas.height;
 
@@ -104,60 +129,63 @@ class ZombieBot extends Cell {
     constructor(x, y, owner) {
         super(x, y, ZOMBIE_BOT_MASS, ZOMBIE_COLOR, ""); 
         this.owner = owner;
-        this.targetFood = null;
-        this.wanderTarget = null;
+        
+        // AI State properties
+        this.aiState = 'orbiting';
+        this.aiStateTimer = (Math.random() * 2 + 2) * 60; // Start orbiting for 2-4 seconds
+        this.orbitAngle = Math.random() * Math.PI * 2;
+        this.orbitDistance = 250;
     }
 
-    updateAi(allCells, food, playerCells, camera) {
+    updateAi(allCells, food, playerCells, camera, mousePos) {
         if (playerCells.length === 0) return;
 
-        const allThreats = allCells
-            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof ZombieBot) && !playerCells.includes(c));
+        // --- 1. AI State Switching ---
+        this.aiStateTimer--;
+        if (this.aiStateTimer <= 0) {
+            if (this.aiState === 'orbiting') {
+                this.aiState = 'chasingMouse';
+                this.aiStateTimer = (Math.random() * 2 + 3) * 60; // Chase mouse for 3-5 seconds
+            } else { // 'chasingMouse'
+                this.aiState = 'orbiting';
+                this.aiStateTimer = (Math.random() * 2 + 2) * 60; // Orbit for 2-4 seconds
+            }
+        }
 
+        // --- 2. Determine Target Position Based on State ---
         const ownerCenter = {
             x: playerCells.reduce((sum, c) => sum + c.x, 0) / playerCells.length,
             y: playerCells.reduce((sum, c) => sum + c.y, 0) / playerCells.length
         };
-        
-        const leashDistance = (window.innerWidth / 2.5) / camera.zoom;
-        const distToOwner = Math.hypot(this.x - ownerCenter.x, this.y - ownerCenter.y);
-
         let targetPos = null;
 
+        if (this.aiState === 'orbiting') {
+            this.orbitAngle += 0.02; // Slowly adjust orbit angle
+            targetPos = {
+                x: ownerCenter.x + this.orbitDistance * Math.cos(this.orbitAngle),
+                y: ownerCenter.y + this.orbitDistance * Math.sin(this.orbitAngle)
+            };
+        } else { // 'chasingMouse'
+            const { worldX, worldY } = camera.screenToWorld(mousePos.x, mousePos.y);
+            targetPos = { x: worldX, y: worldY };
+        }
+        
+        // Opportunistically seek nearby safe food regardless of state
         const foodInRange = food
             .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
-            .filter(f => f.dist < leashDistance);
+            .filter(f => f.dist < 400);
+
+        if(foodInRange.length > 0) {
+            const closestFood = foodInRange.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
+             if (Math.hypot(this.x - closestFood.x, this.y - closestFood.y) < Math.hypot(this.x - targetPos.x, this.y - targetPos.y)) {
+                targetPos = { x: closestFood.x, y: closestFood.y };
+            }
+        }
+
+        // --- 3. Threat Avoidance (Highest Priority) ---
+        const allThreats = allCells
+            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof ZombieBot) && !playerCells.includes(c));
         
-        const safeFood = foodInRange.filter(f => {
-            for (const threat of allThreats) {
-                if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
-                    return false;
-                }
-            }
-            return true;
-        });
-
-        this.targetFood = safeFood.length > 0 ? safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell : null;
-
-        if (distToOwner > leashDistance) {
-            targetPos = ownerCenter;
-        } else if (this.targetFood) {
-            targetPos = { x: this.targetFood.x, y: this.targetFood.y };
-        } else {
-            if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
-                const angle = Math.random() * 2 * Math.PI;
-                const radius = Math.random() * leashDistance * 0.8;
-                this.wanderTarget = {x: ownerCenter.x + Math.cos(angle) * radius, y: ownerCenter.y + Math.sin(angle) * radius};
-            }
-            targetPos = this.wanderTarget;
-        }
-
-        let seekVector = { x: 0, y: 0 };
-        if (targetPos) {
-            seekVector.x = targetPos.x - this.x;
-            seekVector.y = targetPos.y - this.y;
-        }
-
         let fleeVector = { x: 0, y: 0 };
         const dodgeRange = 250; 
         const threatsInRange = allThreats
@@ -172,6 +200,13 @@ class ZombieBot extends Cell {
                 fleeVector.x += awayX * inverseSquare;
                 fleeVector.y += awayY * inverseSquare;
             }
+        }
+
+        // --- 4. Calculate Final Movement Vector ---
+        let seekVector = { x: 0, y: 0 };
+        if (targetPos) {
+            seekVector.x = targetPos.x - this.x;
+            seekVector.y = targetPos.y - this.y;
         }
 
         const fleeWeight = 8000;
@@ -219,6 +254,7 @@ class ZombieBot extends Cell {
     }
 }
 
+// ... (Rest of the file is unchanged) ...
 /**
  * IceWall Class - A special object for the Mage.
  */
