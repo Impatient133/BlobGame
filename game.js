@@ -26,6 +26,8 @@ const UI_RED = 'rgb(200, 0, 0)';
 const UI_GOLD = 'rgb(255, 215, 0)';
 const NECROMANCER_COLOR = 'rgb(138, 43, 226)';
 const ZOMBIE_COLOR = 'rgb(107, 142, 35)';
+const MAGE_COLOR = 'rgb(0, 191, 255)';
+const ICE_WALL_COLOR = 'rgba(173, 216, 230, 0.8)';
 
 
 // --- Game Settings ---
@@ -75,8 +77,11 @@ const CLASS_STATS = {
     },
     'Mage': {
         'name': 'Mage',
-        'description': 'A powerful sorcerer. (Abilities coming soon!)',
-        'abilities': {}
+        'description': 'A powerful sorcerer who can manipulate the battlefield.',
+        'abilities': {
+            'ice_wall': {'name': 'Ice Wall', 'key_name': '1', 'cooldown': 10 * 60, 'desc': 'Create a temporary impassable wall of ice.'},
+            'reform': {'name': 'Reform', 'key_name': '3', 'cooldown': 10 * 60, 'desc': 'Quickly pull your mass to your cursor.'}
+        }
     }
 };
 
@@ -115,14 +120,36 @@ class Cell {
         this.radius = getRadius(this.mass);
     }
 
-    updatePosition() {
+    updatePosition(iceWalls = []) {
         if (this.mass > MIN_MASS_FOR_DECAY) {
             this.mass -= MASS_DECAY_RATE;
             this.updateRadius();
         }
 
+        let nextX = this.x + this.velocityX;
+        let nextY = this.y + this.velocityY;
+
+        // Ice wall collision
+        for (const wall of iceWalls) {
+            const closestX = Math.max(wall.x - wall.width / 2, Math.min(nextX, wall.x + wall.width / 2));
+            const closestY = Math.max(wall.y - wall.height / 2, Math.min(nextY, wall.y + wall.height / 2));
+            const distance = Math.hypot(nextX - closestX, nextY - closestY);
+
+            if (distance < this.radius) {
+                // Simple collision response: stop movement towards wall
+                const dx = nextX - this.x;
+                const dy = nextY - this.y;
+                if (Math.abs(dx) > Math.abs(dy)) { // Moving more horizontally
+                   this.velocityX = 0;
+                } else { // Moving more vertically
+                   this.velocityY = 0;
+                }
+            }
+        }
+        
         this.x += this.velocityX;
         this.y += this.velocityY;
+
         this.velocityX *= FRICTION;
         this.velocityY *= FRICTION;
         this.x = Math.max(this.radius, Math.min(this.x, WORLD_WIDTH - this.radius));
@@ -182,10 +209,10 @@ class PlayerCell extends Cell {
         this.velocityY += (targetVy - this.velocityY) * lerpFactor;
     }
 
-    update() {
+    update(iceWalls) {
         if (this.mergeTimer > 0) this.mergeTimer--;
         if (this.collisionCooldown > 0) this.collisionCooldown--;
-        this.updatePosition();
+        this.updatePosition(iceWalls);
     }
 }
 
@@ -343,8 +370,8 @@ class BotCell extends Cell {
         this.velocityY += (targetVy - this.velocityY) * lerpFactor;
     }
 
-    update() {
-        this.updatePosition();
+    update(iceWalls) {
+        this.updatePosition(iceWalls);
     }
 }
 
@@ -356,9 +383,23 @@ class ZombieBot extends Cell {
         this.wanderTarget = null;
     }
 
-    updateAi(allCells, food, playerCells) {
+    updateAi(allCells, food, playerCells, camera) {
         const allThreats = allCells
             .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof ZombieBot) && !playerCells.includes(c));
+
+        // Keep zombies within player's view
+        const ownerCenter = {
+            x: playerCells.reduce((sum, c) => sum + c.x, 0) / playerCells.length,
+            y: playerCells.reduce((sum, c) => sum + c.y, 0) / playerCells.length
+        };
+        const distToOwner = Math.hypot(this.x - ownerCenter.x, this.y - ownerCenter.y);
+        const maxDist = (SCREEN_WIDTH / 2) / camera.zoom;
+        if (distToOwner > maxDist) {
+            this.targetX = ownerCenter.x;
+            this.targetY = ownerCenter.y;
+            this.move();
+            return;
+        }
 
         let targetPos = null;
         if (!this.targetFood || !food.includes(this.targetFood)) {
@@ -421,7 +462,7 @@ class ZombieBot extends Cell {
     }
 
     move() {
-        const maxSpeed = 12;
+        const maxSpeed = Math.max(1.5, 6 - this.mass / 100); // Speed based on mass
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
         const distance = Math.hypot(dx, dy);
@@ -453,8 +494,49 @@ class ZombieBot extends Cell {
         ctx.fill();
     }
 
+    update(iceWalls) {
+        this.updatePosition(iceWalls);
+    }
+}
+
+class IceWall {
+    constructor(x, y, width, height, angle) {
+        this.x = x;
+        this.y = y;
+        this.width = width;
+        this.height = height;
+        this.angle = angle;
+        this.lifespan = 5 * 60; // 5 seconds
+    }
+
     update() {
-        this.updatePosition();
+        this.lifespan--;
+    }
+
+    draw(ctx, camera) {
+        ctx.save();
+        const { screenX, screenY } = camera.worldToScreen(this.x, this.y);
+        
+        ctx.translate(screenX, screenY);
+        ctx.rotate(this.angle);
+
+        const scaledWidth = this.width * camera.zoom;
+        const scaledHeight = this.height * camera.zoom;
+
+        const gradient = ctx.createLinearGradient(-scaledWidth / 2, 0, scaledWidth / 2, 0);
+        gradient.addColorStop(0, 'rgba(240, 248, 255, 0.7)');
+        gradient.addColorStop(0.5, 'rgba(173, 216, 230, 0.9)');
+        gradient.addColorStop(1, 'rgba(240, 248, 255, 0.7)');
+
+        ctx.fillStyle = gradient;
+        ctx.globalAlpha = Math.min(1, this.lifespan / 60);
+        ctx.fillRect(-scaledWidth / 2, -scaledHeight / 2, scaledWidth, scaledHeight);
+        
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2 * camera.zoom;
+        ctx.strokeRect(-scaledWidth / 2, -scaledHeight / 2, scaledWidth, scaledHeight);
+
+        ctx.restore();
     }
 }
 
@@ -621,6 +703,7 @@ class Game {
         this.particles = [];
         this.targetedMass = [];
         this.zombies = [];
+        this.iceWalls = [];
         this.frame_count = 0;
         this.ejectCooldown = 0;
         this.botSpawnTimer = 0;
@@ -646,6 +729,7 @@ class Game {
         this.particles = [];
         this.targetedMass = [];
         this.zombies = [];
+        this.iceWalls = [];
         
         this.playerClass = null;
         this.showClassPicker = false;
@@ -697,6 +781,7 @@ class Game {
              if (this.playerIsDead || this.showClassPicker) return;
              if (e.button === 0) { // Left click
                 if (this.playerClass === 'Necromancer') this.useNecromancerAbility();
+                if (this.playerClass === 'Mage') this.useIceWallAbility();
              }
         });
     }
@@ -711,6 +796,10 @@ class Game {
             if (key === ' ') this.splitPlayerCells();
             if (key === '1') {
                 if (this.playerClass === 'Necromancer') this.useNecromancerAbility();
+                if (this.playerClass === 'Mage') this.useIceWallAbility();
+            }
+            if (key === '3') {
+                 if (this.playerClass === 'Mage') this.reformPlayerCells();
             }
             if (key === 'q') this.feedCheatActive = !this.feedCheatActive;
         }
@@ -720,12 +809,14 @@ class Game {
         this.playerClass = className;
         this.showClassPicker = false;
         
-        // Apply class-specific changes
         if (this.playerClass === 'Necromancer') {
             this.playerCells.forEach(c => c.color = NECROMANCER_COLOR);
             this.abilityCooldowns['possess'] = 0;
+        } else if (this.playerClass === 'Mage') {
+            this.playerCells.forEach(c => c.color = MAGE_COLOR);
+            this.abilityCooldowns['ice_wall'] = 0;
+            this.abilityCooldowns['reform'] = 0;
         }
-        // Add Mage logic here later
     }
 
     gameLoop() {
@@ -743,7 +834,6 @@ class Game {
 
         const { worldX, worldY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
         
-        // Find the zombie closest to the mouse
         const closestZombie = this.zombies.reduce((closest, z) => {
             const dist = Math.hypot(z.x - worldX, z.y - worldY);
             return dist < closest.dist ? { zombie: z, dist } : closest;
@@ -751,11 +841,9 @@ class Game {
 
         if (!closestZombie) return;
 
-        // 1. Create the new player cell at the zombie's location
         const totalPlayerMass = this.playerCells.reduce((sum, c) => sum + c.mass, 0);
         const newPlayerCell = new PlayerCell(closestZombie.x, closestZombie.y, totalPlayerMass, this.playerName, NECROMANCER_COLOR);
         
-        // 2. Trigger mass reabsorb effect from old cells to the new one's location
         const tempTarget = { x: closestZombie.x, y: closestZombie.y, mass: 1 };
         for (const cell of this.playerCells) {
             const numChunks = Math.floor(cell.mass / 10) + 1;
@@ -768,14 +856,52 @@ class Game {
             }
         }
 
-        // 3. Replace the player's cells with the new one
         this.playerCells = [newPlayerCell];
-
-        // 4. Remove the absorbed zombie
         this.zombies = this.zombies.filter(z => z !== closestZombie);
-
-        // 5. Set cooldown
         this.abilityCooldowns['possess'] = CLASS_STATS.Necromancer.abilities.possess.cooldown;
+    }
+
+    useIceWallAbility() {
+        if (this.abilityCooldowns['ice_wall'] > 0 || this.playerCells.length === 0) return;
+
+        const { worldX, worldY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
+        const playerCell = this.playerCells[0];
+        
+        const dx = worldX - playerCell.x;
+        const dy = worldY - playerCell.y;
+        const angle = Math.atan2(dy, dx) + Math.PI / 2; // Perpendicular angle
+
+        const wallLength = SCREEN_WIDTH / 3 / this.camera.zoom;
+        const wallThickness = 15 / this.camera.zoom;
+
+        this.iceWalls.push(new IceWall(worldX, worldY, wallLength, wallThickness, angle));
+        this.abilityCooldowns['ice_wall'] = CLASS_STATS.Mage.abilities.ice_wall.cooldown;
+    }
+    
+    reformPlayerCells() {
+        if (this.abilityCooldowns['reform'] > 0 || this.playerCells.length <= 1) return;
+
+        const { worldX, worldY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
+        const targetCell = this.playerCells.reduce((closest, c) => {
+            const dist = Math.hypot(c.x - worldX, c.y - worldY);
+            return dist < closest.dist ? { cell: c, dist } : closest;
+        }, { cell: this.playerCells[0], dist: Infinity }).cell;
+
+        const cellsToRemove = this.playerCells.filter(cell => cell !== targetCell);
+        
+        for (const cell of cellsToRemove) {
+            const numChunks = Math.floor(cell.mass / 5) + 1;
+            const massPerChunk = cell.mass / numChunks;
+            for (let i = 0; i < numChunks; i++) {
+                const offsetX = randomInRange(-cell.radius, cell.radius) * 0.5;
+                const offsetY = randomInRange(-cell.radius, cell.radius) * 0.5;
+                const newLiquid = new ReformMass(cell.x + offsetX, cell.y + offsetY, massPerChunk, cell.color, targetCell);
+                this.targetedMass.push(newLiquid);
+            }
+        }
+        
+        this.playerCells = [targetCell];
+        this.abilityCooldowns['reform'] = CLASS_STATS.Mage.abilities.reform.cooldown;
     }
     
     updateGameState() {
@@ -812,11 +938,13 @@ class Game {
         this.bots.forEach(bot => {
             bot.updateAi(allCellsForAI, this.food, this.playerCells, this.camera);
         });
-        this.zombies.forEach(e => e.updateAi(allCellsForAI, this.food, this.playerCells));
+        this.zombies.forEach(e => e.updateAi(allCellsForAI, this.food, this.playerCells, this.camera));
         
-        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.zombies].forEach(cell => cell.update());
+        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.zombies].forEach(cell => cell.update(this.iceWalls));
         this.particles.forEach(p => p.update());
         this.targetedMass.forEach(tm => tm.update());
+        this.iceWalls.forEach(wall => wall.update());
+        this.iceWalls = this.iceWalls.filter(w => w.lifespan > 0);
         
         if (!this.playerIsDead) {
             this.handlePlayerCollisions();
@@ -1095,6 +1223,7 @@ class Game {
         allObjects.sort((a, b) => a.mass - b.mass);
         allObjects.forEach(obj => obj.draw(ctx, this.camera));
         
+        this.iceWalls.forEach(wall => wall.draw(ctx, this.camera));
         this.particles.forEach(p => p.draw(ctx, this.camera));
         
         if (this.playerIsDead) { 
@@ -1270,12 +1399,14 @@ class Game {
            
             const abilities = Object.values(classData.abilities);
             if (abilities.length > 0) {
-                ctx.font = 'bold 18px arial';
-                ctx.fillStyle = UI_GREEN;
-                ctx.fillText('Ability:', cardX + cardWidth / 2, cardY + 150);
-                ctx.font = '16px arial';
-                ctx.fillStyle = WHITE;
-                ctx.fillText(`[${abilities[0].key_name}] ${abilities[0].name}: ${abilities[0].desc}`, cardX + cardWidth / 2, cardY + 180);
+                 ctx.font = 'bold 18px arial';
+                 ctx.fillStyle = UI_GREEN;
+                 ctx.fillText('Abilities:', cardX + cardWidth / 2, cardY + 150);
+                 ctx.font = '16px arial';
+                 ctx.fillStyle = WHITE;
+                 for(let k=0; k < abilities.length; k++){
+                     ctx.fillText(`[${abilities[k].key_name}] ${abilities[k].name}: ${abilities[k].desc}`, cardX + cardWidth / 2, cardY + 180 + (k*20));
+                 }
             }
         }
     }
@@ -1309,7 +1440,7 @@ class Game {
         for (let i = 0; i < top5.length; i++) {
             const cell = top5[i];
             let cellColor = FONT_COLOR;
-            if (cell instanceof PlayerCell) cellColor = this.playerClass === 'Necromancer' ? NECROMANCER_COLOR : 'blue';
+            if (cell instanceof PlayerCell) cellColor = this.playerClass === 'Necromancer' ? NECROMANCER_COLOR : MAGE_COLOR;
             if (cell instanceof ZombieBot) cellColor = ZOMBIE_COLOR;
             
             ctx.fillStyle = cellColor;
@@ -1355,7 +1486,7 @@ class Game {
             const dotY = mapY + (playerCenterY / WORLD_HEIGHT) * mapHeight;
             ctx.beginPath();
             ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
-            ctx.fillStyle = this.playerClass === 'Necromancer' ? NECROMANCER_COLOR : 'blue';
+            ctx.fillStyle = this.playerClass === 'Necromancer' ? NECROMANCER_COLOR : MAGE_COLOR;
             ctx.fill();
         }
     }
