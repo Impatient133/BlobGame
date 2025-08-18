@@ -400,39 +400,34 @@ class ZombieBot extends Cell {
         let targetPos = null;
 
         // Swarm behavior
-        if (distToOwner > leashDistance) {
-            // If too far, primary goal is to return to owner
-            targetPos = ownerCenter;
-        } else {
-            // If within range, look for safe food
-            if (!this.targetFood || !food.includes(this.targetFood)) {
-                const foodInRange = food
-                    .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
-                    .filter(f => f.dist < leashDistance);
-                
-                const safeFood = foodInRange.filter(f => {
-                    for (const threat of allThreats) {
-                        if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
-                            return false;
-                        }
-                    }
-                    return true;
-                });
-
-                this.targetFood = safeFood.length > 0 ? safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell : null;
-            }
-
-            if (this.targetFood) {
-                targetPos = { x: this.targetFood.x, y: this.targetFood.y };
-            } else {
-                // If no safe food, wander near the owner (swarm)
-                if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
-                    const angle = Math.random() * 2 * Math.PI;
-                    const radius = Math.random() * leashDistance * 0.8;
-                    this.wanderTarget = {x: ownerCenter.x + Math.cos(angle) * radius, y: ownerCenter.y + Math.sin(angle) * radius};
+        // FIX: Only look for food within the leash distance
+        const foodInRange = food
+            .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
+            .filter(f => f.dist < leashDistance);
+        
+        const safeFood = foodInRange.filter(f => {
+            for (const threat of allThreats) {
+                if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
+                    return false;
                 }
-                targetPos = this.wanderTarget;
             }
+            return true;
+        });
+
+        this.targetFood = safeFood.length > 0 ? safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell : null;
+
+        if (distToOwner > leashDistance) {
+            targetPos = ownerCenter;
+        } else if (this.targetFood) {
+            targetPos = { x: this.targetFood.x, y: this.targetFood.y };
+        } else {
+            // FIX: Ensure constant movement by always having a wander target
+            if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
+                const angle = Math.random() * 2 * Math.PI;
+                const radius = Math.random() * leashDistance * 0.8;
+                this.wanderTarget = {x: ownerCenter.x + Math.cos(angle) * radius, y: ownerCenter.y + Math.sin(angle) * radius};
+            }
+            targetPos = this.wanderTarget;
         }
 
         let seekVector = { x: 0, y: 0 };
@@ -843,12 +838,10 @@ class Game {
         }, { zombie: null, dist: Infinity }).zombie;
 
         if (!closestZombie) return;
-
-        const totalPlayerMass = this.playerCells.reduce((sum, c) => sum + c.mass, 0);
+        
         // FIX: Start new player cell with the ZOMBIE'S mass, not the total player mass.
         const newPlayerCell = new PlayerCell(closestZombie.x, closestZombie.y, closestZombie.mass, this.playerName, NECROMANCER_COLOR);
         
-        const tempTarget = { x: closestZombie.x, y: closestZombie.y, mass: 1 };
         for (const cell of this.playerCells) {
             const numChunks = Math.floor(cell.mass / 10) + 1;
             const massPerChunk = cell.mass / numChunks;
@@ -1181,8 +1174,9 @@ class Game {
 
                 if (c1.mergeTimer === 0 && c2.mergeTimer === 0) {
                     const dist = Math.hypot(c1.x - c2.x, c1.y - c2.y);
-                    if (dist < (c1.radius + c2.radius) / 2) {
-                        const [larger, smaller] = c1.mass > c2.mass ? [c1, c2] : [c2, c1];
+                    // FIX: Changed merge condition to be more lenient and reliable
+                    const [larger, smaller] = c1.mass > c2.mass ? [c1, c2] : [c2, c1];
+                    if (dist < larger.radius) {
                         larger.mass += smaller.mass;
                         larger.updateRadius();
                         
