@@ -384,52 +384,55 @@ class ZombieBot extends Cell {
     }
 
     updateAi(allCells, food, playerCells, camera) {
+        if (playerCells.length === 0) return;
+
         const allThreats = allCells
             .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof ZombieBot) && !playerCells.includes(c));
 
-        // Keep zombies within player's view
         const ownerCenter = {
             x: playerCells.reduce((sum, c) => sum + c.x, 0) / playerCells.length,
             y: playerCells.reduce((sum, c) => sum + c.y, 0) / playerCells.length
         };
+        
+        const leashDistance = (SCREEN_WIDTH / 2.5) / camera.zoom;
         const distToOwner = Math.hypot(this.x - ownerCenter.x, this.y - ownerCenter.y);
-        const maxDist = (SCREEN_WIDTH / 2) / camera.zoom;
-        if (distToOwner > maxDist) {
-            this.targetX = ownerCenter.x;
-            this.targetY = ownerCenter.y;
-            this.move();
-            return;
-        }
 
         let targetPos = null;
-        if (!this.targetFood || !food.includes(this.targetFood)) {
-            const foodInRange = food
-                .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
-                .filter(f => f.dist < 1000);
-            
-            const safeFood = foodInRange.filter(f => {
-                for (const threat of allThreats) {
-                    if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
-                        return false;
-                    }
-                }
-                return true;
-            });
 
-            if (safeFood.length > 0) {
-                this.targetFood = safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
-            } else {
-                this.targetFood = null;
-            }
-        }
-        
-        if (this.targetFood) {
-            targetPos = { x: this.targetFood.x, y: this.targetFood.y };
+        // Swarm behavior
+        if (distToOwner > leashDistance) {
+            // If too far, primary goal is to return to owner
+            targetPos = ownerCenter;
         } else {
-            if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
-                this.wanderTarget = {x: this.x + randomInRange(-500, 500), y: this.y + randomInRange(-500, 500)};
+            // If within range, look for safe food
+            if (!this.targetFood || !food.includes(this.targetFood)) {
+                const foodInRange = food
+                    .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
+                    .filter(f => f.dist < leashDistance);
+                
+                const safeFood = foodInRange.filter(f => {
+                    for (const threat of allThreats) {
+                        if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
+                            return false;
+                        }
+                    }
+                    return true;
+                });
+
+                this.targetFood = safeFood.length > 0 ? safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell : null;
             }
-            targetPos = this.wanderTarget;
+
+            if (this.targetFood) {
+                targetPos = { x: this.targetFood.x, y: this.targetFood.y };
+            } else {
+                // If no safe food, wander near the owner (swarm)
+                if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
+                    const angle = Math.random() * 2 * Math.PI;
+                    const radius = Math.random() * leashDistance * 0.8;
+                    this.wanderTarget = {x: ownerCenter.x + Math.cos(angle) * radius, y: ownerCenter.y + Math.sin(angle) * radius};
+                }
+                targetPos = this.wanderTarget;
+            }
         }
 
         let seekVector = { x: 0, y: 0 };
@@ -842,7 +845,8 @@ class Game {
         if (!closestZombie) return;
 
         const totalPlayerMass = this.playerCells.reduce((sum, c) => sum + c.mass, 0);
-        const newPlayerCell = new PlayerCell(closestZombie.x, closestZombie.y, totalPlayerMass, this.playerName, NECROMANCER_COLOR);
+        // FIX: Start new player cell with the ZOMBIE'S mass, not the total player mass.
+        const newPlayerCell = new PlayerCell(closestZombie.x, closestZombie.y, closestZombie.mass, this.playerName, NECROMANCER_COLOR);
         
         const tempTarget = { x: closestZombie.x, y: closestZombie.y, mass: 1 };
         for (const cell of this.playerCells) {
@@ -851,7 +855,7 @@ class Game {
             for (let i = 0; i < numChunks; i++) {
                 const offsetX = randomInRange(-cell.radius, cell.radius) * 0.5;
                 const offsetY = randomInRange(-cell.radius, cell.radius) * 0.5;
-                const newLiquid = new ReformMass(cell.x + offsetX, cell.y + offsetY, massPerChunk, cell.color, tempTarget);
+                const newLiquid = new ReformMass(cell.x + offsetX, cell.y + offsetY, massPerChunk, cell.color, newPlayerCell); // Target the new cell instance
                 this.targetedMass.push(newLiquid);
             }
         }
