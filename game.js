@@ -68,10 +68,6 @@ const CLASS_PICK_MASS = 150;
 
 
 // --- Helper Functions ---
-function getRadius(mass) {
-    return Math.floor(Math.sqrt(Math.max(0, mass) / Math.PI) * 6);
-}
-
 function getRandomColor() {
     const r = Math.floor(Math.random() * 151) + 50;
     const g = Math.floor(Math.random() * 151) + 50;
@@ -84,85 +80,7 @@ function randomInRange(min, max) {
 }
 
 
-// --- BASE CLASSES ---
-
-class Cell {
-    constructor(x, y, mass, color, name = "") {
-        this.x = x;
-        this.y = y;
-        this.mass = mass;
-        this.color = color;
-        this.name = name;
-        this.radius = getRadius(this.mass);
-        this.velocityX = 0;
-        this.velocityY = 0;
-    }
-
-    updateRadius() {
-        this.radius = getRadius(this.mass);
-    }
-
-    updatePosition(iceWalls = []) {
-        if (this.mass > MIN_MASS_FOR_DECAY) {
-            this.mass -= MASS_DECAY_RATE;
-            this.updateRadius();
-        }
-
-        let nextX = this.x + this.velocityX;
-        let nextY = this.y + this.velocityY;
-
-        for (const wall of iceWalls) {
-            const closestX = Math.max(wall.x - wall.width / 2, Math.min(nextX, wall.x + wall.width / 2));
-            const closestY = Math.max(wall.y - wall.height / 2, Math.min(nextY, wall.y + wall.height / 2));
-            const distance = Math.hypot(nextX - closestX, nextY - closestY);
-
-            if (distance < this.radius) {
-                const dx = nextX - this.x;
-                const dy = nextY - this.y;
-                if (Math.abs(dx) > Math.abs(dy)) {
-                   this.velocityX = 0;
-                } else {
-                   this.velocityY = 0;
-                }
-            }
-        }
-        
-        this.x += this.velocityX;
-        this.y += this.velocityY;
-
-        this.velocityX *= FRICTION;
-        this.velocityY *= FRICTION;
-        this.x = Math.max(this.radius, Math.min(this.x, WORLD_WIDTH - this.radius));
-        this.y = Math.max(this.radius, Math.min(this.y, WORLD_HEIGHT - this.radius));
-    }
-
-    draw(ctx, camera) {
-        const { screenX, screenY } = camera.worldToScreen(this.x, this.y);
-        const scaledRadius = this.radius * camera.zoom;
-
-        if (scaledRadius < 2) return;
-        if (screenX + scaledRadius < 0 || screenX - scaledRadius > SCREEN_WIDTH ||
-            screenY + scaledRadius < 0 || screenY - scaledRadius > SCREEN_HEIGHT) {
-            return;
-        }
-
-        ctx.beginPath();
-        ctx.arc(screenX, screenY, scaledRadius, 0, Math.PI * 2);
-        ctx.fillStyle = this.color;
-        ctx.fill();
-
-        if (this.mass > 25 && this.name) {
-            const fontSize = Math.floor(scaledRadius / 2.5);
-            if (fontSize < 10) return;
-            
-            ctx.font = `bold ${fontSize}px arial`;
-            ctx.fillStyle = FONT_COLOR;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText(this.name, screenX, screenY);
-        }
-    }
-}
+// --- GAME-SPECIFIC CLASSES (Not Cells) ---
 
 class PlayerCell extends Cell {
     constructor(x, y, mass, name, color = null) {
