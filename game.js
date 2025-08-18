@@ -20,19 +20,18 @@ const FOOD_COLORS = [
     'rgb(255, 0, 255)', 'rgb(0, 255, 255)', 'rgb(0, 255, 0)', 'rgb(255, 165, 0)', 'rgb(255, 255, 0)'
 ];
 const FEED_CHEAT_COLOR = 'rgb(255, 105, 180)';
-const WEB_COLOR = 'rgb(148, 0, 211)';
-const PURGE_COLOR = 'rgb(0, 255, 100)';
-const CREEP_COLOR = 'rgba(128, 0, 128, 0.39)';
 const UI_GRAY = 'rgb(80, 80, 80)';
 const UI_GREEN = 'rgb(0, 200, 0)';
 const UI_RED = 'rgb(200, 0, 0)';
 const UI_GOLD = 'rgb(255, 215, 0)';
+const NECROMANCER_COLOR = 'rgb(138, 43, 226)';
+const ZOMBIE_COLOR = 'rgb(107, 142, 35)';
 
 
 // --- Game Settings ---
 const INITIAL_PLAYER_MASS = 20;
 const INITIAL_BOT_MASS = 15;
-const EMPLOYEE_BOT_MASS = 15;
+const ZOMBIE_BOT_MASS = 25;
 const FOOD_MASS = 2;
 const FOOD_COUNT = 300;
 const INITIAL_BOT_COUNT = 15;
@@ -61,62 +60,26 @@ const BASE_FEED_CHEAT_CHUNK_MASS = 2;
 const FEED_CHEAT_MASS_SCALE_PERCENT = 0.01;
 const FOOD_CHEAT_SPAWN_RATE = 15; // How often food spawns with cheat (in frames)
 
-// --- Web Shot & Creep Settings ---
-const WEB_SHOT_COST = 20;
-const WEB_SHOT_SPEED = 25;
-const TENDRIL_GROWTH_SPEED = 1.0;
-const BASE_TENDRIL_LENGTH = 150;
-const TENDRIL_LENGTH_MASS_FACTOR = 0.7;
-const TENDRIL_WAVE_SPEED = 0.03;
-const TENDRIL_WAVE_AMPLITUDE = 0.8;
-const TENDRIL_SPAWN_RATE = 90;
-const CREEP_FOOD_SPAWN_RATE = 60;
-const CREEP_GROWTH_RATE = 0.15;
-const MAX_CREEP_RADIUS_BASE = 80;
-const CREEP_RADIUS_MASS_FACTOR = 0.5;
-
 // --- Bot Spawning Settings ---
 const NORMAL_SPAWN_RATE = 90;
 
-// --- Ability System Settings ---
-const ABILITY_STATS = {
-    'parasite_shot': {
-        'name': 'Parasite Shot', 'key_name': '1', 'costs': [150, 750, 1250],
-        'description': 'Fire a projectile that infects a bot, causing it to spread to others.',
-        'tiers': [
-            {'desc': 'Infect up to 3 bots, 1 tentacle per bot.', 'cooldown': 10 * 60, 'max_tendrils': 1, 'max_spread': 3},
-            {'desc': 'Infect up to 6 bots, 2 tentacles per bot.', 'cooldown': 10 * 60, 'max_tendrils': 2, 'max_spread': 6},
-            {'desc': 'Infect up to 15 bots, 3 tentacles per bot.', 'cooldown': 10 * 60, 'max_tendrils': 3, 'max_spread': 15},
-        ]
+// --- Class System Settings ---
+const CLASS_PICK_MASS = 150;
+const CLASS_STATS = {
+    'Necromancer': {
+        'name': 'Necromancer',
+        'description': 'Infect enemies to turn them into zombie gatherers. Absorb your zombies to teleport.',
+        'abilities': {
+            'possess': {'name': 'Possess', 'key_name': '1', 'cooldown': 5 * 60, 'desc': 'Absorb the closest zombie to your cursor and reform at its location.'}
+        }
     },
-    'gatherer': {
-        'name': 'Gatherer', 'key_name': '2', 'costs': [150, 750, 1250],
-        'description': 'Spend mass to spawn an employee bot that gathers food for you.',
-        'tiers': [
-            {'desc': 'Max 3 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 3, 'max_trips': 3, 'capacity': 19, 'cooldown': 2 * 60},
-            {'desc': 'Max 6 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 6, 'max_trips': 5, 'capacity': 26, 'cooldown': 2 * 60},
-            {'desc': 'Max 10 employees. Cost: 100 mass.', 'cost': 100, 'max_employees': 10, 'max_trips': 7, 'capacity': 38, 'cooldown': 2 * 60},
-        ]
-    },
-    'regroup': {
-        'name': 'Regroup Mass', 'key_name': '3', 'costs': [150, 750, 1250],
-        'description': 'Rapidly pull all of your mass into a single cell.',
-        'tiers': [
-            {'desc': '15 second cooldown.', 'cooldown': 15 * 60},
-            {'desc': '5 second cooldown.', 'cooldown': 5 * 60},
-            {'desc': 'No cooldown.', 'cooldown': 0},
-        ]
-    },
-    'mass_purge': {
-        'name': 'Mass Purge', 'key_name': '4', 'costs': [150, 750, 1250],
-        'description': 'Unleash a viral purge that decays a percentage of all cells on the map.',
-        'tiers': [
-            {'desc': 'Purge affects 20% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.2, 'decay_rate': 0.01},
-            {'desc': 'Purge affects 35% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.35, 'decay_rate': 0.01},
-            {'desc': 'Purge affects 50% of cells.', 'cost': 150, 'duration': 5*60, 'affect_percentage': 0.5, 'decay_rate': 0.015},
-        ]
+    'Mage': {
+        'name': 'Mage',
+        'description': 'A powerful sorcerer. (Abilities coming soon!)',
+        'abilities': {}
     }
 };
+
 
 // --- Helper Functions ---
 function getRadius(mass) {
@@ -134,10 +97,6 @@ function randomInRange(min, max) {
     return Math.random() * (max - min) + min;
 }
 
-function lerp(start, end, amt) {
-    return (1 - amt) * start + amt * end;
-}
-
 // --- Classes ---
 
 class Cell {
@@ -150,9 +109,6 @@ class Cell {
         this.radius = getRadius(this.mass);
         this.velocityX = 0;
         this.velocityY = 0;
-        this.isPurged = false;
-        this.purgeTimer = 0;
-        this.purgeDecayRate = 0;
     }
 
     updateRadius() {
@@ -238,12 +194,6 @@ class BotCell extends Cell {
         super(x, y, mass, getRandomColor(), `Bot${Math.floor(Math.random() * 100) + 1}`);
         this.targetX = Math.random() * WORLD_WIDTH;
         this.targetY = Math.random() * WORLD_HEIGHT;
-        this.isWebbed = false;
-        this.tendrilSpawnTimer = TENDRIL_SPAWN_RATE;
-        this.creepRadius = 0;
-        this.creepShapeOffsets = [];
-        this.creepAnimOffset = Math.random() * 2 * Math.PI;
-        this.creepIsPainted = false;
         
         const personalities = ["timid", "aggressive", "opportunist"];
         this.personality = personalities[Math.floor(Math.random() * personalities.length)];
@@ -251,12 +201,6 @@ class BotCell extends Cell {
     }
 
     updateAi(allCells, food, playerCells, camera) {
-        if (this.isWebbed) {
-            this.velocityX = 0;
-            this.velocityY = 0;
-            return;
-        }
-
         const visionRange = (SCREEN_WIDTH / 2) / camera.zoom;
 
         if (this.personality === "aggressive" && this.huntingTarget) {
@@ -404,106 +348,49 @@ class BotCell extends Cell {
     }
 }
 
-class EmployeeBot extends Cell {
-    constructor(x, y, owner, abilityTier) {
-        super(x, y, EMPLOYEE_BOT_MASS, owner.color, ""); 
+class ZombieBot extends Cell {
+    constructor(x, y, owner) {
+        super(x, y, ZOMBIE_BOT_MASS, ZOMBIE_COLOR, ""); 
         this.owner = owner;
-        this.abilityTier = abilityTier;
-        const stats = ABILITY_STATS['gatherer'].tiers[this.abilityTier - 1];
-
-        this.state = 'gathering'; // States: 'gathering', 'returning'
         this.targetFood = null;
-        this.carriedMass = 0;
-        this.capacity = stats.capacity;
-        this.tripsMade = 0;
-        this.maxTrips = stats.max_trips;
-        this.lifespan = 120 * 60; // 2-minute lifespan
-        this.isSpawning = true;
         this.wanderTarget = null;
-        setTimeout(() => this.isSpawning = false, 1000);
     }
 
     updateAi(allCells, food, playerCells) {
-        this.lifespan--;
-        if (this.lifespan <= 0) {
-            this.mass = 0;
-            return;
-        }
-        
-        if (this.isSpawning) return;
-
-        // --- Identify all potential threats on the map first ---
         const allThreats = allCells
-            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof EmployeeBot) && !playerCells.includes(c));
+            .filter(c => c !== this && c.mass > this.mass * 1.1 && !(c instanceof ZombieBot) && !playerCells.includes(c));
 
-        // --- Determine Target ---
         let targetPos = null;
-        if (this.state === 'gathering') {
-            if (this.carriedMass >= this.capacity) {
-                this.state = 'returning';
+        if (!this.targetFood || !food.includes(this.targetFood)) {
+            const foodInRange = food
+                .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
+                .filter(f => f.dist < 1000);
+            
+            const safeFood = foodInRange.filter(f => {
+                for (const threat of allThreats) {
+                    if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
+                        return false;
+                    }
+                }
+                return true;
+            });
+
+            if (safeFood.length > 0) {
+                this.targetFood = safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
+            } else {
                 this.targetFood = null;
             }
-
-            // --- A. Constant Motion & Smart Targeting ---
-            if (!this.targetFood || !food.includes(this.targetFood)) {
-                const foodInRange = food
-                    .map(f => ({ cell: f, dist: Math.hypot(this.x - f.x, this.y - f.y) }))
-                    .filter(f => f.dist < 1000);
-                
-                // Filter out food pellets that are too close to any threat.
-                const safeFood = foodInRange.filter(f => {
-                    for (const threat of allThreats) {
-                        if (Math.hypot(f.cell.x - threat.x, f.cell.y - threat.y) < threat.radius + 150) {
-                            return false; // This food is unsafe, ignore it.
-                        }
-                    }
-                    return true; // This food is safe.
-                });
-
-                if (safeFood.length > 0) {
-                    // From the list of safe food, pick the one closest to the bot.
-                    this.targetFood = safeFood.reduce((closest, current) => (current.dist < closest.dist ? current : closest)).cell;
-                } else {
-                    // If no food is safe, don't target anything and wander instead.
-                    this.targetFood = null;
-                }
+        }
+        
+        if (this.targetFood) {
+            targetPos = { x: this.targetFood.x, y: this.targetFood.y };
+        } else {
+            if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
+                this.wanderTarget = {x: this.x + randomInRange(-500, 500), y: this.y + randomInRange(-500, 500)};
             }
-            
-            if (this.targetFood) {
-                targetPos = { x: this.targetFood.x, y: this.targetFood.y };
-            } else {
-                if (!this.wanderTarget || Math.hypot(this.x - this.wanderTarget.x, this.y - this.wanderTarget.y) < 50) {
-                    this.wanderTarget = {x: this.x + randomInRange(-500, 500), y: this.y + randomInRange(-500, 500)};
-                }
-                targetPos = this.wanderTarget;
-            }
+            targetPos = this.wanderTarget;
         }
 
-        if (this.state === 'returning') {
-            const ownerCells = playerCells.filter(p => p.mass > 0);
-            if (ownerCells.length === 0) {
-                this.mass = 0;
-                return;
-            }
-            const closestOwnerCell = ownerCells.map(c => ({cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y)}))
-                                               .reduce((a, b) => a.dist < b.dist ? a : b).cell;
-            targetPos = { x: closestOwnerCell.x, y: closestOwnerCell.y };
-
-            const distToOwner = Math.hypot(this.x - closestOwnerCell.x, this.y - closestOwnerCell.y);
-            if (distToOwner < closestOwnerCell.radius) {
-                closestOwnerCell.mass += this.carriedMass;
-                this.carriedMass = 0;
-                this.tripsMade++;
-                if (this.tripsMade >= this.maxTrips) {
-                    closestOwnerCell.mass += this.mass;
-                    this.mass = 0; 
-                } else {
-                    this.state = 'gathering';
-                }
-            }
-        }
-
-        // --- B. Stronger Threat Avoidance ---
         let seekVector = { x: 0, y: 0 };
         if (targetPos) {
             seekVector.x = targetPos.x - this.x;
@@ -511,7 +398,6 @@ class EmployeeBot extends Cell {
         }
 
         let fleeVector = { x: 0, y: 0 };
-        // Increased the bot's awareness range from 150 to 250.
         const dodgeRange = 250; 
         const threatsInRange = allThreats
             .map(c => ({ cell: c, dist: Math.hypot(this.x - c.x, this.y - c.y) }))
@@ -527,7 +413,6 @@ class EmployeeBot extends Cell {
             }
         }
 
-        // Increased the power of the flee behavior to prioritize safety.
         const fleeWeight = 8000;
         this.targetX = this.x + seekVector.x + fleeVector.x * fleeWeight;
         this.targetY = this.y + seekVector.y + fleeVector.y * fleeWeight;
@@ -536,7 +421,7 @@ class EmployeeBot extends Cell {
     }
 
     move() {
-        const maxSpeed = 12; // Increased speed
+        const maxSpeed = 12;
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
         const distance = Math.hypot(dx, dy);
@@ -556,17 +441,15 @@ class EmployeeBot extends Cell {
         const scaledRadius = this.radius * camera.zoom;
         if (scaledRadius < 2) return;
 
-        // Main body
         ctx.beginPath();
         ctx.arc(screenX, screenY, scaledRadius, 0, Math.PI * 2);
         ctx.fillStyle = this.color;
         ctx.fill();
 
-        // Inner pulsating core
-        const pulse = 1 + Math.sin(this.frame_count * 0.1) * 0.2;
+        const pulse = 1 + Math.sin(Date.now() * 0.01) * 0.2;
         ctx.beginPath();
         ctx.arc(screenX, screenY, scaledRadius * 0.5 * pulse, 0, Math.PI * 2);
-        ctx.fillStyle = 'white';
+        ctx.fillStyle = 'rgba(138, 43, 226, 0.7)';
         ctx.fill();
     }
 
@@ -659,43 +542,10 @@ class TargetedMass extends Cell {
     }
 }
 
-class CoalescingMass extends TargetedMass {
-    constructor(x, y, mass, color, targetCell) {
-        super(x, y, mass, color, targetCell);
-        // FIX: Gives the chunks a 30-frame (0.5 second) cooldown before the player can eat them.
-        this.playerEatCooldown = 30; 
-    }
-    update() {
-        // FIX: Adds the code to count down the eat cooldown each frame.
-        if (this.playerEatCooldown > 0) {
-            this.playerEatCooldown--;
-        }
-
-        if (this.target) {
-            const dx = this.target.x - this.x;
-            const dy = this.target.y - this.y;
-            const distance = Math.hypot(dx, dy);
-            if (distance < 10) {
-                this.mass = 0; // Disappear when close
-            } else {
-                const pullStrength = 20;
-                const lerpFactor = 0.2;
-                const targetVx = (dx / distance) * pullStrength;
-                const targetVy = (dy / distance) * pullStrength;
-                this.velocityX += (targetVx - this.velocityX) * lerpFactor;
-                this.velocityY += (targetVy - this.velocityY) * lerpFactor;
-            }
-        }
-        this.lifespan--;
-        this.updatePosition();
-    }
-}
-
-
 class ReformMass extends TargetedMass {
      constructor(x, y, mass, color, targetCell) {
         super(x, y, mass, color, targetCell);
-        this.playerEatCooldown = 0; // Make it immediately edible by player
+        this.playerEatCooldown = 0;
     }
 
     update() {
@@ -713,272 +563,6 @@ class ReformMass extends TargetedMass {
         }
         this.lifespan--;
         this.updatePosition();
-    }
-}
-
-class WebProjectile extends EjectedMass {
-    constructor(x, y, vx, vy) {
-        super(x, y, 10, WEB_COLOR, vx, vy);
-        this.decayTimer = 120;
-    }
-}
-
-class Tendril {
-    constructor(originBot) {
-        this.origin = originBot;
-        this.target = null;
-        this.isAttached = false;
-        this.currentLength = 0;
-        this.baseAngle = Math.random() * 2 * Math.PI;
-        this.waveOffset = Math.random() * 2 * Math.PI;
-        this.maxLength = BASE_TENDRIL_LENGTH + (this.origin.mass * TENDRIL_LENGTH_MASS_FACTOR);
-    }
-
-    update(allBots) {
-        if (this.isAttached) return null;
-
-        if (this.target && (!allBots.includes(this.target) || this.target.isWebbed)) {
-            this.target = null;
-        }
-
-        if (this.target) {
-            const tip = this.getTipPos();
-            const distToTarget = Math.hypot(tip.x - this.target.x, tip.y - this.target.y);
-
-            if (distToTarget < this.target.radius + 5) {
-                this.isAttached = true;
-                return this.target;
-            }
-            
-            this.currentLength += TENDRIL_GROWTH_SPEED * 3;
-            this.currentLength = Math.min(this.currentLength, this.maxLength);
-            
-            this.baseAngle = Math.atan2(this.target.y - this.origin.y, this.target.x - this.origin.x);
-        } else {
-            if (this.currentLength < this.maxLength) {
-                this.currentLength += TENDRIL_GROWTH_SPEED;
-            }
-            
-            const tip = this.getTipPos();
-            const potentialTargets = allBots
-                .filter(bot => !bot.isWebbed && Math.hypot(this.origin.x - bot.x, this.origin.y - bot.y) < this.currentLength && Math.hypot(this.origin.x - bot.x, this.origin.y - bot.y) > this.origin.radius)
-                .map(bot => ({ bot, dist: Math.hypot(tip.x - bot.x, tip.y - bot.y) }));
-            
-            if (potentialTargets.length > 0) {
-                this.target = potentialTargets.reduce((closest, current) => current.dist < closest.dist ? current : closest).bot;
-            }
-        }
-        return null;
-    }
-
-    getTipPos() {
-        let currentAngle = this.baseAngle;
-        if (!this.target) {
-            this.waveOffset += TENDRIL_WAVE_SPEED;
-            currentAngle += Math.sin(this.waveOffset) * TENDRIL_WAVE_AMPLITUDE;
-        }
-        
-        return {
-            x: this.origin.x + this.currentLength * Math.cos(currentAngle),
-            y: this.origin.y + this.currentLength * Math.sin(currentAngle)
-        };
-    }
-
-    draw(ctx, camera) {
-        const numSegments = 15;
-        const points = [];
-        
-        for (let i = 0; i <= numSegments; i++) {
-            const progress = i / numSegments;
-            const length = this.currentLength * progress;
-            
-            let currentAngle = this.baseAngle;
-            if (!this.target) {
-                const wavePhase = this.waveOffset + progress * 2;
-                currentAngle += Math.sin(wavePhase) * TENDRIL_WAVE_AMPLITUDE * progress;
-            }
-            
-            const pointX = this.origin.x + length * Math.cos(currentAngle);
-            const pointY = this.origin.y + length * Math.sin(currentAngle);
-            points.push(camera.worldToScreen(pointX, pointY));
-        }
-            
-        if (points.length > 1) {
-            ctx.beginPath();
-            ctx.moveTo(points[0].screenX, points[0].screenY);
-            for (let i = 1; i < points.length; i++) {
-                ctx.lineTo(points[i].screenX, points[i].screenY);
-            }
-            ctx.strokeStyle = WEB_COLOR;
-            ctx.lineWidth = Math.max(1, 2 * camera.zoom);
-            ctx.stroke();
-        }
-    }
-}
-
-class Web {
-    constructor(initialBot, abilityLevel) {
-        this.webbedBots = new Set([initialBot]);
-        this.tendrils = [];
-        initialBot.isWebbed = true;
-        initialBot.creepRadius = 1.0;
-        this.creepFoodSpawnTimer = CREEP_FOOD_SPAWN_RATE;
-        
-        this.abilityLevel = abilityLevel;
-        this.stats = ABILITY_STATS['parasite_shot']['tiers'][this.abilityLevel - 1];
-        this.maxSpread = this.stats.max_spread;
-        this.spreadCount = 1;
-    }
-
-    update(allBots, foodList, frameCount, creepCtx) {
-        this.webbedBots = new Set([...this.webbedBots].filter(bot => allBots.includes(bot)));
-        this.tendrils = this.tendrils.filter(t => this.webbedBots.has(t.origin) && (!t.isAttached || (t.target && allBots.includes(t.target))));
-
-        const newlyInfected = new Set();
-        for (const tendril of this.tendrils) {
-            if (!tendril.isAttached) {
-                const infectedBot = tendril.update(allBots);
-                if (infectedBot && !infectedBot.isWebbed) {
-                    infectedBot.isWebbed = true;
-                    newlyInfected.add(infectedBot);
-                    this.spreadCount++;
-                }
-            }
-        }
-        
-        newlyInfected.forEach(bot => {
-            this.webbedBots.add(bot);
-            bot.creepRadius = 1.0;
-            
-            if (bot.creepShapeOffsets.length === 0) {
-                bot.creepShapeOffsets = [];
-                const numPoints = 30;
-                const seed1 = randomInRange(3, 6);
-                const seed2 = randomInRange(9, 14);
-                for (let i = 0; i < numPoints; i++) {
-                    const angle = (i / numPoints) * 2 * Math.PI;
-                    let noise = 0.5 * Math.sin(angle * seed1);
-                    noise += 0.25 * Math.sin(angle * seed2);
-                    bot.creepShapeOffsets.push(1 + noise * 0.4);
-                }
-            }
-        });
-
-        this.webbedBots.forEach(webbedBot => {
-            const maxCreepRadius = MAX_CREEP_RADIUS_BASE + webbedBot.mass * CREEP_RADIUS_MASS_FACTOR;
-            if (webbedBot.creepRadius < maxCreepRadius) {
-                webbedBot.creepRadius += CREEP_GROWTH_RATE;
-                if (webbedBot.creepRadius >= maxCreepRadius && !webbedBot.creepIsPainted) {
-                    this.paintCreep(webbedBot, creepCtx);
-                    webbedBot.creepIsPainted = true;
-                }
-            }
-
-            webbedBot.tendrilSpawnTimer--;
-            if (webbedBot.tendrilSpawnTimer <= 0) {
-                webbedBot.tendrilSpawnTimer = TENDRIL_SPAWN_RATE;
-                
-                if (this.spreadCount < this.maxSpread) {
-                    const currentTendrilCount = this.tendrils.filter(t => t.origin === webbedBot).length;
-                    if (currentTendrilCount < this.stats.max_tendrils) {
-                        this.tendrils.push(new Tendril(webbedBot));
-                    }
-                }
-            }
-        });
-
-        this.creepFoodSpawnTimer--;
-        if (this.creepFoodSpawnTimer <= 0 && this.webbedBots.size > 1) {
-            this.creepFoodSpawnTimer = CREEP_FOOD_SPAWN_RATE;
-            
-            const botsArray = Array.from(this.webbedBots);
-            const bot1 = botsArray[Math.floor(Math.random() * botsArray.length)];
-            let bot2 = botsArray[Math.floor(Math.random() * botsArray.length)];
-            while (bot1 === bot2) {
-                 bot2 = botsArray[Math.floor(Math.random() * botsArray.length)];
-            }
-
-            const spawnX = lerp(bot1.x, bot2.x, Math.random());
-            const spawnY = lerp(bot1.y, bot2.y, Math.random());
-            
-            const newFood = new Food(spawnX, spawnY);
-            newFood.color = WEB_COLOR;
-            foodList.push(newFood);
-        }
-    }
-
-    paintCreep(bot, ctx, erase = false) {
-        if (bot.creepShapeOffsets.length === 0) return;
-
-        ctx.fillStyle = erase ? 'rgba(0,0,0,0)' : CREEP_COLOR;
-        if (erase) {
-           ctx.globalCompositeOperation = 'destination-out';
-        }
-        
-        const numPoints = 30;
-        const maxCreepRadius = MAX_CREEP_RADIUS_BASE + bot.mass * CREEP_RADIUS_MASS_FACTOR;
-        
-        ctx.beginPath();
-        for (let i = 0; i <= numPoints; i++) {
-            const angle = (i / numPoints) * 2 * Math.PI;
-            const r = maxCreepRadius * (bot.creepShapeOffsets[i % numPoints] || 1);
-            const px = bot.x + r * Math.cos(angle);
-            const py = bot.y + r * Math.sin(angle);
-            if (i === 0) ctx.moveTo(px, py);
-            else ctx.lineTo(px, py);
-        }
-        ctx.fill();
-        if (erase) {
-            ctx.globalCompositeOperation = 'source-over';
-        }
-    }
-
-
-    draw(ctx, camera, frameCount) {
-        // Draw dynamic, unpainted creep
-        for (const bot of this.webbedBots) {
-            if (!bot.creepIsPainted && bot.creepShapeOffsets.length > 0) {
-                const { screenX, screenY } = camera.worldToScreen(bot.x, bot.y);
-                const scaledCreepRadius = bot.creepRadius * camera.zoom;
-
-                if (scaledCreepRadius < 5) continue;
-                if (screenX + scaledCreepRadius * 1.5 < 0 || screenX - scaledCreepRadius * 1.5 > SCREEN_WIDTH ||
-                    screenY + scaledCreepRadius * 1.5 < 0 || screenY - scaledCreepRadius * 1.5 > SCREEN_HEIGHT) {
-                    continue;
-                }
-                
-                ctx.beginPath();
-                const numPoints = 30;
-                for (let i = 0; i <= numPoints; i++) {
-                    const angle = (i / numPoints) * 2 * Math.PI;
-                    const baseRadius = scaledCreepRadius * bot.creepShapeOffsets[i % numPoints];
-                    const edgePulse = 3 * Math.sin(frameCount * 0.05 + bot.creepAnimOffset + angle * 4) * camera.zoom;
-                    const r = baseRadius + edgePulse;
-                    const px = screenX + r * Math.cos(angle);
-                    const py = screenY + r * Math.sin(angle);
-                    if (i === 0) ctx.moveTo(px, py);
-                    else ctx.lineTo(px, py);
-                }
-                ctx.fillStyle = CREEP_COLOR;
-                ctx.fill();
-            }
-        }
-        
-        this.tendrils.forEach(tendril => tendril.draw(ctx, camera));
-
-        const pulse = (Math.sin(frameCount * 0.1) + 1) / 2;
-        for (const bot of this.webbedBots) {
-            const { screenX, screenY } = camera.worldToScreen(bot.x, bot.y);
-            const radius = bot.radius * camera.zoom;
-            const auraRadius = radius * (1.2 + pulse * 0.3);
-            const auraAlpha = (50 + pulse * 40) / 255;
-            if (auraRadius > 1) {
-                ctx.beginPath();
-                ctx.arc(screenX, screenY, auraRadius, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(148, 0, 211, ${auraAlpha})`;
-                ctx.fill();
-            }
-        }
     }
 }
 
@@ -1036,26 +620,16 @@ class Game {
         this.spawnRateDoubled = false;
         this.particles = [];
         this.targetedMass = [];
-        this.webProjectiles = [];
-        this.webs = [];
-        this.employees = [];
+        this.zombies = [];
         this.frame_count = 0;
         this.ejectCooldown = 0;
         this.botSpawnTimer = 0;
         this.foodSpawnTimer = 0;
-
-        // Off-screen canvas for creep
-        this.creepCanvas = document.createElement('canvas');
-        this.creepCanvas.width = WORLD_WIDTH;
-        this.creepCanvas.height = WORLD_HEIGHT;
-        this.creepCtx = this.creepCanvas.getContext('2d');
         
-        // Ability System
-        this.abilityLevels = {'parasite_shot': 0, 'gatherer': 0, 'regroup': 0, 'mass_purge': 0};
-        this.abilityCooldowns = {'parasite_shot': 0, 'gatherer': 0, 'regroup': 0, 'mass_purge': 0};
-        this.upgradeMenuOpen = false;
-        this.warningMessage = "";
-        this.warningTimer = 0;
+        // Class System
+        this.playerClass = null; // e.g., 'Necromancer', 'Mage'
+        this.showClassPicker = false;
+        this.abilityCooldowns = {};
 
         // Input handling
         this.mousePos = { x: 0, y: 0 };
@@ -1071,13 +645,11 @@ class Game {
         this.ejectedMass = [];
         this.particles = [];
         this.targetedMass = [];
-        this.webProjectiles = [];
-        this.webs = [];
-        this.employees = [];
-        this.creepCtx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        this.zombies = [];
         
-        this.abilityLevels = {'parasite_shot': 0, 'gatherer': 0, 'regroup': 0, 'mass_purge': 0};
-        this.abilityCooldowns = {'parasite_shot': 0, 'gatherer': 0, 'regroup': 0, 'mass_purge': 0};
+        this.playerClass = null;
+        this.showClassPicker = false;
+        this.abilityCooldowns = {};
         
         this.respawnPlayer();
     }
@@ -1089,6 +661,8 @@ class Game {
         
         this.playerCells = [new PlayerCell(startX, startY, INITIAL_PLAYER_MASS, this.playerName)];
         this.playerIsDead = false;
+        this.playerClass = null;
+        this.showClassPicker = false;
 
         if (this.camera) {
             this.camera.x = startX;
@@ -1120,45 +694,40 @@ class Game {
         });
         
         canvas.addEventListener('mousedown', e => {
-             if (this.playerIsDead || this.upgradeMenuOpen) return;
-             // Mouse-based abilities have been moved to key presses
+             if (this.playerIsDead || this.showClassPicker) return;
+             if (e.button === 0) { // Left click
+                if (this.playerClass === 'Necromancer') this.useNecromancerAbility();
+             }
         });
-
-        canvas.addEventListener('mouseup', e => {
-            if (this.playerIsDead || this.upgradeMenuOpen) return;
-            // Mouse-based abilities have been moved to key presses
-        });
-
-        canvas.addEventListener('contextmenu', e => e.preventDefault());
     }
 
     handleKeyPress(key) {
         if (this.playerIsDead && key === 'enter') {
             this.respawnPlayer();
-        } else if (this.upgradeMenuOpen) {
-            if (key === '1') this.upgradeAbility('parasite_shot');
-            if (key === '2') this.upgradeAbility('gatherer');
-            if (key === '3') this.upgradeAbility('regroup');
-            if (key === '4') this.upgradeAbility('mass_purge');
-            if (key === 'u') this.upgradeMenuOpen = false;
+        } else if (this.showClassPicker) {
+            if (key === '1') this.selectClass('Necromancer');
+            if (key === '2') this.selectClass('Mage');
         } else if (!this.playerIsDead) {
             if (key === ' ') this.splitPlayerCells();
-            if (key === '1') this.fireWebShot();
-            if (key === '2') this.spawnEmployee();
-            if (key === '3') this.reformPlayerCells();
-            if (key === '4') this.activateMassPurge();
-            if (key === 'q') this.feedCheatActive = !this.feedCheatActive;
-            if (key === 'u') this.upgradeMenuOpen = true;
-            if (key === 'z') { // New cheat code
-                const abilityKeys = Object.keys(this.abilityLevels);
-                for (const abilityKey of abilityKeys) {
-                    this.abilityLevels[abilityKey] = 3;
-                }
-                this.showWarning("Cheats Activated: All abilities maxed!");
+            if (key === '1') {
+                if (this.playerClass === 'Necromancer') this.useNecromancerAbility();
             }
+            if (key === 'q') this.feedCheatActive = !this.feedCheatActive;
         }
     }
     
+    selectClass(className) {
+        this.playerClass = className;
+        this.showClassPicker = false;
+        
+        // Apply class-specific changes
+        if (this.playerClass === 'Necromancer') {
+            this.playerCells.forEach(c => c.color = NECROMANCER_COLOR);
+            this.abilityCooldowns['possess'] = 0;
+        }
+        // Add Mage logic here later
+    }
+
     gameLoop() {
         if (!this.running) return;
         
@@ -1168,179 +737,59 @@ class Game {
         
         requestAnimationFrame(this.gameLoop);
     }
-    
-    upgradeAbility(abilityKey) {
-        const level = this.abilityLevels[abilityKey];
-        if (level >= 3) {
-            this.showWarning("Ability is already max level!");
-            return;
-        }
 
-        const cost = ABILITY_STATS[abilityKey].costs[level];
-        const totalMass = this.playerCells.reduce((sum, c) => sum + c.mass, 0);
-
-        if (totalMass >= cost) {
-            const largestCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
-            largestCell.mass -= cost;
-            this.abilityLevels[abilityKey]++;
-            this.upgradeMenuOpen = false;
-        } else {
-            this.showWarning("Not enough mass!");
-        }
-    }
-
-    showWarning(message) {
-        this.warningMessage = message;
-        this.warningTimer = 120; // 2 seconds
-    }
-
-    fireWebShot() {
-        const level = this.abilityLevels['parasite_shot'];
-        if (level === 0 || this.abilityCooldowns['parasite_shot'] > 0 || this.playerCells.length === 0) return;
-        
-        const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
-        if (playerCell.mass < WEB_SHOT_COST) return;
-        
-        playerCell.mass -= WEB_SHOT_COST;
-        playerCell.updateRadius();
+    useNecromancerAbility() {
+        if (this.abilityCooldowns['possess'] > 0 || this.zombies.length === 0) return;
 
         const { worldX, worldY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
-        const dx = worldX - playerCell.x;
-        const dy = worldY - playerCell.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance === 0) return;
         
-        const velX = (dx / distance) * WEB_SHOT_SPEED;
-        const velY = (dy / distance) * WEB_SHOT_SPEED;
-        this.webProjectiles.push(new WebProjectile(playerCell.x, playerCell.y, velX, velY));
+        // Find the zombie closest to the mouse
+        const closestZombie = this.zombies.reduce((closest, z) => {
+            const dist = Math.hypot(z.x - worldX, z.y - worldY);
+            return dist < closest.dist ? { zombie: z, dist } : closest;
+        }, { zombie: null, dist: Infinity }).zombie;
+
+        if (!closestZombie) return;
+
+        // 1. Create the new player cell at the zombie's location
+        const totalPlayerMass = this.playerCells.reduce((sum, c) => sum + c.mass, 0);
+        const newPlayerCell = new PlayerCell(closestZombie.x, closestZombie.y, totalPlayerMass, this.playerName, NECROMANCER_COLOR);
         
-        const cooldown = ABILITY_STATS['parasite_shot'].tiers[level - 1].cooldown;
-        this.abilityCooldowns['parasite_shot'] = cooldown;
-    }
-
-    spawnEmployee() {
-        const level = this.abilityLevels['gatherer'];
-        if (level === 0 || this.abilityCooldowns['gatherer'] > 0 || this.playerCells.length === 0) return;
-
-        const stats = ABILITY_STATS['gatherer'].tiers[level - 1];
-        const cost = stats.cost;
-        
-        if (this.employees.length >= stats.max_employees) {
-            this.showWarning("Maximum number of employees reached!");
-            return;
-        }
-
-        const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
-        // FIX 1: The check was adding MIN_MASS_TO_EJECT unnecessarily.
-        // It should only check if the player has more mass than the cost.
-        if (playerCell.mass < cost) { 
-            this.showWarning("Not enough mass to spawn an employee!");
-            return;
-        }
-
-        // FIX 2: Mass was not being deducted. Changed from "playerCell.mass - cost"
-        // to "playerCell.mass -= cost".
-        playerCell.mass -= cost;
-        playerCell.updateRadius();
-        
-        const spawnAngle = Math.random() * 2 * Math.PI;
-        const spawnDist = playerCell.radius + 30;
-        const spawnX = playerCell.x + Math.cos(spawnAngle) * spawnDist;
-        const spawnY = playerCell.y + Math.sin(spawnAngle) * spawnDist;
-        
-        // FIX 3: The "liquify" animation is now correctly implemented.
-        // We create a temporary, non-rendered target for the mass to coalesce at.
-        const spawnTarget = { x: spawnX, y: spawnY, mass: 1 }; // A simple object for the mass to target
-
-        const numChunks = 10;
-        const massPerChunk = cost / numChunks;
-        for (let i = 0; i < numChunks; i++) {
-            const offsetX = randomInRange(-playerCell.radius, playerCell.radius) * 0.7;
-            const offsetY = randomInRange(-playerCell.radius, playerCell.radius) * 0.7;
-            // The CoalescingMass will now correctly move towards the spawnTarget
-            const newLiquid = new CoalescingMass(playerCell.x + offsetX, playerCell.y + offsetY, massPerChunk, playerCell.color, spawnTarget);
-            this.targetedMass.push(newLiquid);
-        }
-
-        // The employee bot is spawned after the animation has had time to play out.
-        setTimeout(() => {
-            const newEmployee = new EmployeeBot(spawnX, spawnY, playerCell, level);
-            this.employees.push(newEmployee);
-        }, 500); // Delay spawn to allow for animation
-
-        this.abilityCooldowns['gatherer'] = stats.cooldown;
-    }
-
-    reformPlayerCells() {
-        const level = this.abilityLevels['regroup'];
-        if (level === 0 || this.abilityCooldowns['regroup'] > 0 || this.playerCells.length <= 1) return;
-
-        const { worldX, worldY } = this.camera.screenToWorld(this.mousePos.x, this.mousePos.y);
-        const targetCell = this.playerCells.reduce((closest, c) => {
-            const dist = Math.hypot(c.x - worldX, c.y - worldY);
-            return dist < closest.dist ? { cell: c, dist } : closest;
-        }, { cell: this.playerCells[0], dist: Infinity }).cell;
-
-        const cellsToRemove = this.playerCells.filter(cell => cell !== targetCell);
-        
-        for (const cell of cellsToRemove) {
-            const numChunks = Math.floor(cell.mass / 5) + 1;
+        // 2. Trigger mass reabsorb effect from old cells to the new one's location
+        const tempTarget = { x: closestZombie.x, y: closestZombie.y, mass: 1 };
+        for (const cell of this.playerCells) {
+            const numChunks = Math.floor(cell.mass / 10) + 1;
             const massPerChunk = cell.mass / numChunks;
             for (let i = 0; i < numChunks; i++) {
                 const offsetX = randomInRange(-cell.radius, cell.radius) * 0.5;
                 const offsetY = randomInRange(-cell.radius, cell.radius) * 0.5;
-                const vx = randomInRange(-2, 2);
-                const vy = randomInRange(-2, 2);
-                const newLiquid = new ReformMass(cell.x + offsetX, cell.y + offsetY, massPerChunk, cell.color, targetCell);
-                newLiquid.velocityX = vx;
-                newLiquid.velocityY = vy;
+                const newLiquid = new ReformMass(cell.x + offsetX, cell.y + offsetY, massPerChunk, cell.color, tempTarget);
                 this.targetedMass.push(newLiquid);
             }
         }
-        
-        this.playerCells = [targetCell];
-        
-        const cooldown = ABILITY_STATS['regroup'].tiers[level - 1].cooldown;
-        this.abilityCooldowns['regroup'] = cooldown;
-    }
 
-    activateMassPurge() {
-        const level = this.abilityLevels['mass_purge'];
-        if (level === 0 || this.abilityCooldowns['mass_purge'] > 0 || this.playerCells.length === 0) return;
+        // 3. Replace the player's cells with the new one
+        this.playerCells = [newPlayerCell];
 
-        const stats = ABILITY_STATS['mass_purge'].tiers[level - 1];
-        const cost = stats.cost;
-        
-        const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
-        if (playerCell.mass < cost) return;
-        
-        playerCell.mass -= cost;
-        playerCell.updateRadius();
+        // 4. Remove the absorbed zombie
+        this.zombies = this.zombies.filter(z => z !== closestZombie);
 
-        const allPurgeable = [...this.bots, ...this.food];
-        for (let i = allPurgeable.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [allPurgeable[i], allPurgeable[j]] = [allPurgeable[j], allPurgeable[i]];
-        }
-        
-        const numToPurge = Math.floor(allPurgeable.length * stats.affect_percentage);
-        for (let i = 0; i < numToPurge; i++) {
-            allPurgeable[i].isPurged = true;
-            allPurgeable[i].purgeTimer = stats.duration;
-            allPurgeable[i].purgeDecayRate = stats.decay_rate;
-        }
-            
-        this.abilityCooldowns['mass_purge'] = 30 * 60;
+        // 5. Set cooldown
+        this.abilityCooldowns['possess'] = CLASS_STATS.Necromancer.abilities.possess.cooldown;
     }
     
     updateGameState() {
-        if (this.upgradeMenuOpen) return;
+        if (this.showClassPicker) return;
 
-        if (this.warningTimer > 0) this.warningTimer--;
         for (const key in this.abilityCooldowns) {
             if (this.abilityCooldowns[key] > 0) {
                 this.abilityCooldowns[key]--;
             }
+        }
+        
+        const totalMass = this.playerCells.reduce((sum, c) => sum + c.mass, 0);
+        if (!this.playerClass && totalMass >= CLASS_PICK_MASS) {
+            this.showClassPicker = true;
         }
 
         this.spawnRateDoubled = this.keysPressed['a'];
@@ -1359,66 +808,37 @@ class Game {
             this.playerCells.forEach(cell => cell.setMovementInput(this.mousePos, this.camera));
         }
         
-        const allCellsForAI = [...this.playerCells, ...this.bots, ...this.employees];
+        const allCellsForAI = [...this.playerCells, ...this.bots, ...this.zombies];
         this.bots.forEach(bot => {
             bot.updateAi(allCellsForAI, this.food, this.playerCells, this.camera);
         });
-        this.employees.forEach(e => e.updateAi(allCellsForAI, this.food, this.playerCells));
+        this.zombies.forEach(e => e.updateAi(allCellsForAI, this.food, this.playerCells));
         
-        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.webProjectiles, ...this.employees].forEach(cell => cell.update());
+        [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.zombies].forEach(cell => cell.update());
         this.particles.forEach(p => p.update());
         this.targetedMass.forEach(tm => tm.update());
-        this.webs.forEach(web => web.update(this.bots, this.food, this.frame_count, this.creepCtx));
         
-        [...this.bots, ...this.food].forEach(cell => {
-            if (cell.isPurged) {
-                if (cell.purgeTimer > 0) {
-                    cell.purgeTimer--;
-                    cell.mass *= (1 - cell.purgeDecayRate);
-                    cell.updateRadius();
-                    if (Math.random() < 0.2) {
-                        this.particles.push(new Particle(cell.x, cell.y, randomInRange(-1,1), randomInRange(-1,1), 3, PURGE_COLOR, 30));
-                    }
-                } else {
-                    cell.isPurged = false;
-                }
-            }
-        });
-        
-        const deadBots = this.bots.filter(b => b.mass <= 1);
-        if (deadBots.length > 0) {
-            deadBots.forEach(bot => this.removeCell(bot));
-        }
-
-        const foodCountBefore = this.food.length;
-        const survivingFood = this.food.filter(f => f.mass > 1);
-        const foodEatenByPurge = foodCountBefore - survivingFood.length;
-        this.food = survivingFood;
-        for (let i = 0; i < foodEatenByPurge; i++) {
-             this.food.push(new Food(Math.random() * WORLD_WIDTH, Math.random() * WORLD_HEIGHT));
-        }
-
         if (!this.playerIsDead) {
             this.handlePlayerCollisions();
             this.mergePlayerCells();
         }
         
-        this.handleProjectileCollisions();
-
         const eatenThisFrame = new Set();
-        const allEaters = [...this.playerCells, ...this.bots, ...this.employees];
+        const allEaters = [...this.playerCells, ...this.bots, ...this.zombies];
 
         for (const eater of allEaters) {
             // Handle eating food and ejected mass
             for (const consumable of [...this.food, ...this.ejectedMass, ...this.targetedMass]) {
                 if (eatenThisFrame.has(consumable)) continue;
                 if (eater instanceof PlayerCell && consumable instanceof TargetedMass && consumable.playerEatCooldown > 0) continue;
-                if (eater instanceof PlayerCell && consumable instanceof EmployeeBot) continue; // Player can't eat employees
+                if (eater instanceof PlayerCell && consumable instanceof ZombieBot) continue;
                 
                 if (this.checkEat(eater, consumable)) {
-                    if (eater instanceof EmployeeBot) {
+                    if (eater instanceof ZombieBot) {
                         if (consumable instanceof Food) {
-                             eater.carriedMass += consumable.mass;
+                             if (this.playerCells.length > 0) {
+                                this.playerCells[0].mass += consumable.mass;
+                             }
                              eatenThisFrame.add(consumable);
                         }
                     } else {
@@ -1430,18 +850,30 @@ class Game {
             // Handle eating other cells
             for (const otherEater of allEaters) {
                 if (eater === otherEater || eatenThisFrame.has(otherEater)) continue;
-                if (eater instanceof PlayerCell && otherEater instanceof EmployeeBot) continue; // Player can't eat employees
+                if (eater instanceof PlayerCell && otherEater instanceof ZombieBot) continue;
                 
                 if (this.checkEat(eater, otherEater)) {
-                    eater.mass += otherEater.mass;
-                    eatenThisFrame.add(otherEater);
+                    // NECROMANCER LOGIC
+                    if (eater instanceof PlayerCell && this.playerClass === 'Necromancer' && otherEater instanceof BotCell) {
+                        const massToGain = otherEater.mass - ZOMBIE_BOT_MASS;
+                        if (massToGain > 0) {
+                            eater.mass += massToGain;
+                            const newZombie = new ZombieBot(otherEater.x, otherEater.y, eater);
+                            this.zombies.push(newZombie);
+                            eatenThisFrame.add(otherEater);
+                        }
+                    } else {
+                        eater.mass += otherEater.mass;
+                        eatenThisFrame.add(otherEater);
+                    }
                 }
             }
         }
         
         eatenThisFrame.forEach(eatenItem => {
             if (eatenItem instanceof BotCell) {
-                this.removeCell(eatenItem);
+                const botIndex = this.bots.indexOf(eatenItem);
+                if (botIndex > -1) this.bots.splice(botIndex, 1);
             } else if (eatenItem instanceof PlayerCell) {
                 const index = this.playerCells.indexOf(eatenItem);
                 if (index > -1) this.playerCells.splice(index, 1);
@@ -1456,32 +888,17 @@ class Game {
 
         this.ejectedMass = this.ejectedMass.filter(m => !eatenThisFrame.has(m));
         this.targetedMass = this.targetedMass.filter(tm => !eatenThisFrame.has(tm) && tm.mass > 0);
-        this.employees = this.employees.filter(e => e.mass > 1 && !eatenThisFrame.has(e));
+        this.zombies = this.zombies.filter(e => e.mass > 1 && !eatenThisFrame.has(e));
 
 
-        [...this.playerCells, ...this.bots, ...this.employees].forEach(cell => cell.updateRadius());
+        [...this.playerCells, ...this.bots, ...this.zombies].forEach(cell => cell.updateRadius());
 
         this.particles = this.particles.filter(p => p.lifespan > 0);
-        this.webProjectiles = this.webProjectiles.filter(p => p.decayTimer > 0);
-        this.webs = this.webs.filter(w => w.webbedBots.size > 0);
         
         this.camera.update(this.playerCells);
         if (this.playerCells.length === 0 && !this.playerIsDead) this.playerIsDead = true;
     }
 
-    handleProjectileCollisions() {
-        this.webProjectiles = this.webProjectiles.filter(proj => {
-            for (const bot of this.bots) {
-                if (!bot.isWebbed && this.checkEat(proj, bot)) {
-                    const level = this.abilityLevels['parasite_shot'];
-                    if (level > 0) { this.webs.push(new Web(bot, level)); }
-                    return false;
-                }
-            }
-            return true;
-        });
-    }
-    
     updateFeedCheat() {
         if (!this.feedCheatActive || this.playerCells.length === 0 || this.bots.length === 0) return;
         const playerCell = this.playerCells.reduce((max, c) => c.mass > max.mass ? c : max, this.playerCells[0]);
@@ -1647,27 +1064,8 @@ class Game {
         this.playerCells = nextPlayerCells;
     }
     
-    removeCell(cellToRemove) {
-        if (cellToRemove instanceof BotCell) {
-            // If the bot's creep was fully painted, erase it from the creep canvas.
-            if (cellToRemove.isWebbed && cellToRemove.creepIsPainted) {
-                // Create a temporary web object to call the paintCreep utility.
-                const tempWeb = new Web(cellToRemove, 1);
-                tempWeb.paintCreep(cellToRemove, this.creepCtx, true); // true = erase
-            }
-            const botIndex = this.bots.indexOf(cellToRemove);
-            if (botIndex > -1) {
-                this.bots.splice(botIndex, 1);
-            }
-        }
-    }
-
     checkEat(eater, eaten) {
         const dist = Math.hypot(eater.x - eaten.x, eater.y - eaten.y);
-        
-        if (eater instanceof WebProjectile) {
-            return dist < eater.radius + eaten.radius;
-        }
         
         if (eaten instanceof Food || eaten instanceof EjectedMass || eaten instanceof TargetedMass) {
             return dist < eater.radius;
@@ -1691,46 +1089,22 @@ class Game {
 
         this.drawGrid();
 
-        const { worldX: viewX, worldY: viewY } = this.camera.screenToWorld(0, 0);
-        const viewW = SCREEN_WIDTH / this.camera.zoom;
-        const viewH = SCREEN_HEIGHT / this.camera.zoom;
-        ctx.drawImage(this.creepCanvas, viewX, viewY, viewW, viewH, viewX, viewY, viewW, viewH);
-
         ctx.restore();
 
-        [...this.bots, ...this.food].forEach(cell => {
-             if (cell.isPurged) {
-                const pulse = (Math.sin(this.frame_count * 0.2) + 1) / 2;
-                const { screenX, screenY } = this.camera.worldToScreen(cell.x, cell.y);
-                const radius = cell.radius * this.camera.zoom * (1.1 + pulse * 0.2);
-                const alpha = (100 + pulse * 50) / 255;
-                if (radius > 1) {
-                    ctx.beginPath();
-                    ctx.arc(screenX, screenY, radius, 0, 2 * Math.PI);
-                    ctx.fillStyle = `rgba(0, 255, 100, ${alpha})`;
-                    ctx.fill();
-                }
-            }
-        });
-
-        const allObjects = [...this.food, ...this.ejectedMass, ...this.bots, ...this.employees, ...this.playerCells, ...this.targetedMass, ...this.webProjectiles];
+        const allObjects = [...this.food, ...this.ejectedMass, ...this.bots, ...this.zombies, ...this.playerCells, ...this.targetedMass];
         allObjects.sort((a, b) => a.mass - b.mass);
         allObjects.forEach(obj => obj.draw(ctx, this.camera));
         
         this.particles.forEach(p => p.draw(ctx, this.camera));
         
-        this.webs.forEach(web => web.draw(ctx, this.camera, this.frame_count));
-
         if (this.playerIsDead) { 
             this.drawDeathScreen();
         } else if (this.playerCells && this.playerCells.length > 0) { 
             this.drawHud();
         }
         
-        this.drawWarning();
-
-        if (this.upgradeMenuOpen) {
-            this.drawUpgradeMenu();
+        if (this.showClassPicker) {
+            this.drawClassPicker();
         }
     }
 
@@ -1770,7 +1144,9 @@ class Game {
         ctx.textBaseline = 'top';
         ctx.fillText(`Mass: ${Math.floor(totalMass)}`, 10, 10);
         ctx.fillText(`Bots: ${this.bots.length}/${MAX_BOT_COUNT}`, 10, 40);
-        ctx.fillText(`Employees: ${this.employees.length}`, 10, 70);
+        if (this.playerClass === 'Necromancer') {
+            ctx.fillText(`Zombies: ${this.zombies.length}`, 10, 70);
+        }
 
 
         let yOffset = 100;
@@ -1784,61 +1160,33 @@ class Game {
             ctx.fillText('Bot & Food Spawn Rate Doubled!', 10, yOffset);
         }
         
-        ctx.font = '20px arial';
-        
-        // Check if any upgrade is affordable
-        let canUpgrade = false;
-        for (const key of Object.keys(this.abilityLevels)) {
-            const level = this.abilityLevels[key];
-            if (level < 3) {
-                const cost = ABILITY_STATS[key].costs[level];
-                if (totalMass >= cost) {
-                    canUpgrade = true;
-                    break;
-                }
-            }
-        }
-
-        if (canUpgrade) {
-            const glow = Math.abs(Math.sin(this.frame_count * 0.05)) * 15;
-            ctx.shadowColor = UI_GOLD;
-            ctx.shadowBlur = glow;
-            ctx.fillStyle = UI_GOLD;
-        } else {
-            ctx.fillStyle = FONT_COLOR;
-        }
-        
-        ctx.fillText("Press 'U' for Upgrades", 10, SCREEN_HEIGHT - 30);
-        
-        // Reset shadow and color for other HUD elements
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = FONT_COLOR;
-
         this.drawScoreboard();
         this.drawMinimap();
-        this.drawCooldowns();
+        if (this.playerClass) {
+            this.drawCooldowns();
+        }
     }
 
     drawCooldowns() {
-        const cooldownKeys = ['parasite_shot', 'gatherer', 'regroup', 'mass_purge'];
+        if (!this.playerClass) return;
+        const classAbilities = CLASS_STATS[this.playerClass].abilities;
+        const abilityKeys = Object.keys(classAbilities);
+        if (abilityKeys.length === 0) return;
+        
         const iconSize = 50;
         const margin = 10;
         const startX = SCREEN_WIDTH - 210;
         const startY = SCREEN_HEIGHT - margin - iconSize;
 
         let i = 0;
-        for (const key of cooldownKeys) {
-            const level = this.abilityLevels[key];
-            if (level === 0) continue;
-
+        for (const key of abilityKeys) {
             const x = startX - i * (iconSize + margin);
             const y = startY;
-            const ability = ABILITY_STATS[key];
+            const ability = classAbilities[key];
             
             ctx.fillStyle = UI_GRAY;
             ctx.fillRect(x, y, iconSize, iconSize);
 
-            // Draw Ability Name (first word)
             const abilityName = ability.name.split(' ')[0];
             ctx.font = '12px arial';
             ctx.fillStyle = WHITE;
@@ -1848,9 +1196,7 @@ class Game {
 
             const cooldown = this.abilityCooldowns[key];
             if (cooldown > 0) {
-                const stats = ability.tiers[level - 1];
-                let maxCooldown = stats.cooldown || 1;
-                if (key === 'mass_purge') maxCooldown = 30 * 60;
+                const maxCooldown = ability.cooldown;
                 
                 if (maxCooldown > 0) {
                     const ratio = cooldown / maxCooldown;
@@ -1858,13 +1204,11 @@ class Game {
                     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
                     ctx.fillRect(x, y, iconSize, overlayHeight);
                     
-                    // Draw Cooldown Text
                     ctx.font = 'bold 20px arial';
                     ctx.fillStyle = WHITE;
                     ctx.fillText(`${(cooldown / 60).toFixed(1)}`, x + iconSize / 2, y + iconSize / 2 + 5);
                 }
             } else {
-                // Draw Key Name when not on cooldown
                 ctx.font = 'bold 24px arial';
                 ctx.fillStyle = WHITE;
                 ctx.fillText(ability.key_name, x + iconSize / 2, y + iconSize / 2 + 5);
@@ -1877,11 +1221,11 @@ class Game {
         }
     }
 
-    drawUpgradeMenu() {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    drawClassPicker() {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
         ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 
-        const menuWidth = 700, menuHeight = 500;
+        const menuWidth = 800, menuHeight = 400;
         const menuX = SCREEN_WIDTH / 2 - menuWidth / 2;
         const menuY = SCREEN_HEIGHT / 2 - menuHeight / 2;
         
@@ -1891,60 +1235,48 @@ class Game {
         ctx.lineWidth = 3;
         ctx.strokeRect(menuX, menuY, menuWidth, menuHeight);
 
-        ctx.font = '30px arial';
-        ctx.fillStyle = WHITE;
-        ctx.textAlign = 'left';
+        ctx.font = 'bold 40px arial';
+        ctx.fillStyle = UI_GOLD;
+        ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
-        ctx.fillText("Abilities", menuX + 20, menuY + 15);
+        ctx.fillText("Choose Your Class", SCREEN_WIDTH / 2, menuY + 20);
 
-        const totalMass = Math.floor(this.playerCells.reduce((sum, c) => sum + c.mass, 0));
-        ctx.font = '20px arial';
-        ctx.textAlign = 'right';
-        ctx.fillText(`Your Mass: ${totalMass}`, menuX + menuWidth - 20, menuY + 20);
+        const classKeys = Object.keys(CLASS_STATS);
+        const cardWidth = 350;
+        const cardHeight = 250;
+        
+        for (let i = 0; i < classKeys.length; i++) {
+            const key = classKeys[i];
+            const classData = CLASS_STATS[key];
+            const cardX = menuX + (menuWidth / 2 * i) + (menuWidth / 4) - (cardWidth / 2);
+            const cardY = menuY + 100;
 
-        const abilityKeys = ['parasite_shot', 'gatherer', 'regroup', 'mass_purge'];
-        const startY = menuY + 70;
-        for (let i = 0; i < abilityKeys.length; i++) {
-            const key = abilityKeys[i];
-            const level = this.abilityLevels[key];
-            const stats = ABILITY_STATS[key];
-            const y = startY + i * 105;
-            
-            ctx.textAlign = 'left';
-            ctx.font = 'bold 24px arial';
+            ctx.fillStyle = 'rgb(50,50,50)';
+            ctx.fillRect(cardX, cardY, cardWidth, cardHeight);
+            ctx.strokeStyle = WHITE;
+            ctx.strokeRect(cardX, cardY, cardWidth, cardHeight);
+
+            ctx.font = 'bold 28px arial';
             ctx.fillStyle = UI_GOLD;
-            ctx.fillText(`[${i+1}] ${stats.name}`, menuX + 30, y);
-            
-            const desc = level === 0 ? stats.description : (level < 3 ? "Next Level: " + stats.tiers[level].desc : "Max Level");
+            ctx.textAlign = 'center';
+            ctx.fillText(`[${i+1}] ${classData.name}`, cardX + cardWidth / 2, cardY + 20);
+
             ctx.font = '16px arial';
             ctx.fillStyle = WHITE;
-            ctx.fillText(desc, menuX + 30, y + 35);
-
-            for (let rank = 0; rank < 3; rank++) {
-                ctx.fillStyle = rank < level ? UI_GOLD : 'rgb(50, 50, 50)';
-                ctx.fillRect(menuX + 30 + rank * 40, y + 60, 30, 15);
+            const descriptionLines = classData.description.split('. ');
+            for(let j=0; j < descriptionLines.length; j++){
+                 ctx.fillText(descriptionLines[j], cardX + cardWidth / 2, cardY + 70 + (j * 20));
             }
-
-            ctx.textAlign = 'right';
-            ctx.font = '20px arial';
-            if (level >= 3) {
+           
+            const abilities = Object.values(classData.abilities);
+            if (abilities.length > 0) {
+                ctx.font = 'bold 18px arial';
                 ctx.fillStyle = UI_GREEN;
-                ctx.fillText("MAX LEVEL", menuX + menuWidth - 30, y + 15);
-            } else {
-                const cost = stats.costs[level];
-                ctx.fillStyle = totalMass >= cost ? UI_GREEN : UI_RED;
-                const costStr = (level === 0 ? "Unlock Cost: " : "Upgrade Cost: ") + cost;
-                ctx.fillText(costStr, menuX + menuWidth - 30, y + 15);
+                ctx.fillText('Ability:', cardX + cardWidth / 2, cardY + 150);
+                ctx.font = '16px arial';
+                ctx.fillStyle = WHITE;
+                ctx.fillText(`[${abilities[0].key_name}] ${abilities[0].name}: ${abilities[0].desc}`, cardX + cardWidth / 2, cardY + 180);
             }
-        }
-    }
-
-    drawWarning() {
-        if (this.warningTimer > 0) {
-            ctx.font = '30px arial';
-            ctx.fillStyle = UI_RED;
-            ctx.textAlign = 'center';
-            ctx.fillText(this.warningMessage, SCREEN_WIDTH / 2, SCREEN_HEIGHT - 100);
         }
     }
 
@@ -1961,7 +1293,7 @@ class Game {
     }
 
     drawScoreboard() {
-        const allCells = [...this.playerCells, ...this.bots, ...this.employees];
+        const allCells = [...this.playerCells, ...this.bots, ...this.zombies];
         allCells.sort((a, b) => b.mass - a.mass);
         const top5 = allCells.slice(0, 5);
         
@@ -1977,8 +1309,8 @@ class Game {
         for (let i = 0; i < top5.length; i++) {
             const cell = top5[i];
             let cellColor = FONT_COLOR;
-            if (cell instanceof PlayerCell) cellColor = 'blue';
-            if (cell instanceof EmployeeBot) cellColor = 'green';
+            if (cell instanceof PlayerCell) cellColor = this.playerClass === 'Necromancer' ? NECROMANCER_COLOR : 'blue';
+            if (cell instanceof ZombieBot) cellColor = ZOMBIE_COLOR;
             
             ctx.fillStyle = cellColor;
             ctx.fillText(`${i+1}. ${cell.name || 'Player'}: ${Math.floor(cell.mass)}`, startX, startY + 25 * (i + 1));
@@ -2007,12 +1339,12 @@ class Game {
             ctx.fill();
         });
         
-        this.employees.forEach(bot => {
+        this.zombies.forEach(bot => {
             const dotX = mapX + (bot.x / WORLD_WIDTH) * mapWidth;
             const dotY = mapY + (bot.y / WORLD_HEIGHT) * mapHeight;
             ctx.beginPath();
             ctx.arc(dotX, dotY, 2, 0, Math.PI * 2);
-            ctx.fillStyle = 'yellow';
+            ctx.fillStyle = 'purple';
             ctx.fill();
         });
 
@@ -2023,7 +1355,7 @@ class Game {
             const dotY = mapY + (playerCenterY / WORLD_HEIGHT) * mapHeight;
             ctx.beginPath();
             ctx.arc(dotX, dotY, 4, 0, Math.PI * 2);
-            ctx.fillStyle = 'blue';
+            ctx.fillStyle = this.playerClass === 'Necromancer' ? NECROMANCER_COLOR : 'blue';
             ctx.fill();
         }
     }
