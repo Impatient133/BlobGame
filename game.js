@@ -608,7 +608,8 @@ class Game {
         this.bots.forEach(bot => {
             bot.updateAi(allCellsForAI, this.food, this.playerCells, this.camera);
         });
-        this.zombies.forEach(e => e.updateAi(allCellsForAI, this.food, this.playerCells, this.camera));
+        // Pass mouse position to zombie AI
+        this.zombies.forEach(e => e.updateAi(allCellsForAI, this.food, this.playerCells, this.camera, this.mousePos));
         
         [...this.playerCells, ...this.bots, ...this.ejectedMass, ...this.zombies].forEach(cell => cell.update(this.iceWalls));
         this.particles.forEach(p => p.update());
@@ -640,7 +641,7 @@ class Game {
                         }
                     } else {
                         eater.mass += consumable.mass;
-                        eatenThisFrame.add(consumable);
+                        eatenThisFrame.add( consumable);
                     }
                 }
             }
@@ -649,6 +650,11 @@ class Game {
                 if (eater instanceof PlayerCell && otherEater instanceof ZombieBot) continue;
                 
                 if (this.checkEat(eater, otherEater)) {
+                    // Apply slow effect if a zombie was eaten
+                    if (otherEater instanceof ZombieBot) {
+                        eater.slowTimer = 60; // 1 second at 60fps
+                    }
+
                     let wasHandledByClass = false;
                     if (this.playerClass && eater instanceof PlayerCell) {
                         const classMechanics = CLASS_DATA[this.playerClass].mechanics;
