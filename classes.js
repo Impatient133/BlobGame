@@ -3,11 +3,8 @@ const ZOMBIE_BOT_MASS = 25;
 const NECROMANCER_COLOR = 'rgb(138, 43, 226)';
 const ZOMBIE_COLOR = 'rgb(107, 142, 35)';
 const MAGE_COLOR = 'rgb(0, 191, 255)';
+const JUGGERNAUT_COLOR = 'rgb(210, 105, 30)';
 
-// --- HELPER FUNCTIONS (can be moved if they become more general) ---
-function randomInRange(min, max) {
-    return Math.random() * (max - min) + min;
-}
 
 // --- CLASS-SPECIFIC CELL/OBJECT DEFINITIONS ---
 
@@ -222,7 +219,6 @@ const CLASS_DATA = {
                 }
             }
         },
-        // Handles unique passive mechanics
         mechanics: {
             onEat: function(game, eater, eaten) {
                 if (eaten instanceof BotCell) {
@@ -231,10 +227,10 @@ const CLASS_DATA = {
                         eater.mass += massToGain;
                         const newZombie = new ZombieBot(eaten.x, eaten.y, eater);
                         game.zombies.push(newZombie);
-                        return true; // Indicates the eaten bot was handled (and should be removed)
+                        return true; 
                     }
                 }
-                return false; // Default behavior
+                return false;
             }
         }
     },
@@ -297,6 +293,89 @@ const CLASS_DATA = {
                 }
             }
         },
-        mechanics: {} // Mage has no special passive mechanics for now
+        mechanics: {}
+    },
+    'Juggernaut': {
+        name: 'Juggernaut',
+        description: 'An unstoppable force that builds momentum to crush its foes.',
+        color: JUGGERNAUT_COLOR,
+        // Initialize custom properties when the class is selected
+        init: function(game) {
+            game.playerState.kineticBuildup = 0;
+            game.playerState.lastMoveAngle = null;
+            game.playerState.isCharging = false;
+            game.playerState.chargeDuration = 0;
+        },
+        abilities: {
+            'unstoppable_charge': {
+                name: 'Charge', 
+                key_name: '1', 
+                cooldown: 15 * 60, 
+                desc: 'Become unstoppable and charge forward for 2.5 seconds.',
+                execute: function(game) {
+                    if (game.abilityCooldowns['unstoppable_charge'] > 0) return;
+                    
+                    game.playerState.isCharging = true;
+                    game.playerState.chargeDuration = 2.5 * 60; // 2.5 seconds
+                    game.abilityCooldowns['unstoppable_charge'] = this.abilities.unstoppable_charge.cooldown;
+                }
+            }
+        },
+        mechanics: {
+            // This runs every frame in the game loop
+            onUpdate: function(game) {
+                const playerCell = game.playerCells[0];
+                if (!playerCell) return;
+
+                // Handle Unstoppable Charge state
+                if (game.playerState.isCharging) {
+                    if (game.playerState.chargeDuration > 0) {
+                        game.playerState.chargeDuration--;
+                        // Apply a strong, continuous force
+                        const { worldX, worldY } = game.camera.screenToWorld(game.mousePos.x, game.mousePos.y);
+                        const dx = worldX - playerCell.x;
+                        const dy = worldY - playerCell.y;
+                        const distance = Math.hypot(dx, dy);
+                        if (distance > 0) {
+                            playerCell.velocityX += (dx / distance) * 2;
+                            playerCell.velocityY += (dy / distance) * 2;
+                        }
+                    } else {
+                        game.playerState.isCharging = false;
+                    }
+                }
+
+                // Handle Kinetic Buildup passive
+                const currentSpeed = Math.hypot(playerCell.velocityX, playerCell.velocityY);
+                if (currentSpeed > 1) { // Only build momentum when moving
+                    const currentAngle = Math.atan2(playerCell.velocityY, playerCell.velocityX);
+                    if (game.playerState.lastMoveAngle !== null) {
+                        const angleDiff = Math.abs(currentAngle - game.playerState.lastMoveAngle);
+                        if (angleDiff < 0.2) { // Threshold for "straight" movement
+                            game.playerState.kineticBuildup = Math.min(2.5, game.playerState.kineticBuildup + 0.01);
+                        } else {
+                            game.playerState.kineticBuildup = Math.max(0, game.playerState.kineticBuildup - 0.1);
+                        }
+                    }
+                    game.playerState.lastMoveAngle = currentAngle;
+                } else {
+                    game.playerState.kineticBuildup = Math.max(0, game.playerState.kineticBuildup - 0.1);
+                }
+
+                // Apply the speed boost from kinetic buildup
+                playerCell.velocityX += playerCell.velocityX * (game.playerState.kineticBuildup / 10);
+                playerCell.velocityY += playerCell.velocityY * (game.playerState.kineticBuildup / 10);
+            },
+            // Handle unique eating mechanics for the charge
+            onEat: function(game, eater, eaten) {
+                if (game.playerState.isCharging) {
+                    if (eaten.mass < eater.mass * 0.25) { // Instantly absorb small things
+                        eater.mass += eaten.mass;
+                        return true; // Override default eating
+                    }
+                }
+                return false;
+            }
+        }
     }
 };
