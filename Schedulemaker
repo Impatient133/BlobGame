@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule Pro - Web Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .modal-backdrop {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        .modal {
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+        .btn {
+            @apply px-4 py-2 rounded-lg font-semibold text-white shadow-md transition-transform transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-offset-2;
+        }
+        .btn-primary {
+            @apply bg-blue-600 hover:bg-blue-700 focus:ring-blue-500;
+        }
+        .btn-secondary {
+            @apply bg-gray-500 hover:bg-gray-600 focus:ring-gray-400;
+        }
+        .btn-danger {
+            @apply bg-red-600 hover:bg-red-700 focus:ring-red-500;
+        }
+        .btn-main-action {
+            @apply bg-green-600 hover:bg-green-700 focus:ring-green-500 text-lg px-6 py-3;
+        }
+        .btn-ai-action {
+            @apply bg-purple-600 hover:bg-purple-700 focus:ring-purple-500 text-lg px-6 py-3;
+        }
+        .table-cell-content {
+            @apply p-2 text-center text-xs sm:text-sm min-h-[60px];
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .draggable-employee {
+            @apply cursor-grab active:cursor-grabbing;
+        }
+        .dragging {
+            @apply opacity-50 shadow-2xl scale-105;
+        }
+        .drag-over-valid {
+            @apply bg-green-200 ring-2 ring-green-500;
+        }
+        .drag-over-invalid {
+            @apply bg-red-200 ring-2 ring-red-500;
+        }
+        .unfilled-slot {
+            @apply cursor-pointer hover:bg-red-200 transition-colors;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div id="app" class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="mb-6">
+            <h1 class="text-4xl font-bold text-gray-900 mb-2">Schedule Pro</h1>
+            <p class="text-lg text-gray-600">The modern solution for dynamic team scheduling.</p>
+        </header>
+
+        <!-- Control Panel -->
+        <div class="bg-white p-4 rounded-xl shadow-md mb-6 flex flex-wrap items-center gap-4">
+            <button id="manageEmployeesBtn" class="btn btn-primary">Manage Employees</button>
+            <button id="defineShiftsBtn" class="btn btn-primary">Define Shifts</button>
+            <button id="clearScheduleBtn" class="btn btn-danger">Clear Schedule</button>
+            <div class="flex-grow"></div>
+            <button id="saveConfigBtn" class="btn btn-secondary">Save Config</button>
+            <button id="loadConfigBtn" class="btn btn-secondary">Load Config</button>
+            <input type="file" id="configFileInput" class="hidden" accept=".json">
+            <button id="generateScheduleBtn" class="btn btn-main-action">Generate Schedule</button>
+            <button id="aiGenerateScheduleBtn" class="btn btn-ai-action">Advanced AI Generation</button>
+        </div>
+        
+        <!-- Global Settings -->
+        <div class="bg-white p-4 rounded-xl shadow-md mb-6">
+            <h2 class="text-xl font-bold mb-3">Global Scheduling Rules</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label for="maxShiftsPerWeek" class="block text-sm font-medium text-gray-700">Default Max Shifts Per Week</label>
+                    <input type="number" id="maxShiftsPerWeek" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" value="5" min="1">
+                </div>
+                <div class="relative">
+                    <label for="minRestHours" class="block text-sm font-medium text-gray-700">Prevent "Clopening"</label>
+                    <input type="number" id="minRestHours" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" value="10" min="0" title="Minimum hours of rest required between an employee's shifts.">
+                    <p class="text-xs text-gray-500 mt-1">Minimum hours of rest between shifts.</p>
+                </div>
+                <div>
+                    <label for="apiKey" class="block text-sm font-medium text-gray-700">Google Gemini API Key</label>
+                    <input type="password" id="apiKey" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" placeholder="Enter your API key here">
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule Display -->
+        <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+             <div class="overflow-x-auto">
+                <table class="w-full min-w-[1000px]">
+                    <thead id="schedule-header" class="bg-gray-800 text-white">
+                        <!-- Header will be generated by JS -->
+                    </thead>
+                    <tbody id="schedule-body" class="divide-y divide-gray-200">
+                        <!-- Schedule rows will be generated by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <!-- Bottom Section: Logs and Overview -->
+        <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-white p-4 rounded-xl shadow-md">
+                <h3 class="font-semibold text-lg mb-2">Event Log & Unfilled Shifts</h3>
+                <div id="logArea" class="w-full h-40 bg-gray-900 text-white font-mono text-sm p-3 rounded-lg overflow-y-auto custom-scrollbar">
+                    Welcome! Configure your settings and click "Generate Schedule" to begin.
+                </div>
+            </div>
+            <div class="bg-white p-4 rounded-xl shadow-md">
+                <h3 class="font-semibold text-lg mb-2">Weekly Shift Distribution</h3>
+                <ul id="employeeOverview" class="w-full h-40 space-y-2 overflow-y-auto custom-scrollbar pr-2">
+                    <!-- Employee shift counts will be generated here -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="employeeModal" class="fixed inset-0 z-50 items-center justify-center hidden">
+        <div class="modal-backdrop fixed inset-0"></div>
+        <div class="modal bg-white rounded-xl shadow-2xl w-11/12 max-w-6xl m-4 relative max-h-[90vh] flex flex-col">
+            <div class="p-6 border-b">
+                <h2 class="text-2xl font-bold">Manage Employees</h2>
+            </div>
+            <div class="p-6 flex-grow overflow-y-auto custom-scrollbar">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-1">
+                        <h3 class="font-semibold mb-2">Employee Roster</h3>
+                        <ul id="employeeList" class="space-y-2 max-h-96 lg:max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar"></ul>
+                    </div>
+                    <div class="lg:col-span-2">
+                        <h3 id="employeeFormTitle" class="font-semibold mb-2 text-xl">Add New Employee</h3>
+                        <form id="employeeForm" class="space-y-6 bg-gray-50 p-6 rounded-lg">
+                            <input type="hidden" id="employeeId">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label for="employeeName" class="block text-sm font-medium text-gray-700">Name</label>
+                                    <input type="text" id="employeeName" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" required>
+                                </div>
+                                <div>
+                                    <label for="maxShifts" class="block text-sm font-medium text-gray-700">Max Shifts Per Week</label>
+                                    <input type="number" id="maxShifts" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" placeholder="Use global default" min="1">
+                                </div>
+                            </div>
+                            <div>
+                                <label for="preferredShift" class="block text-sm font-medium text-gray-700">Preferred Shift</label>
+                                <select id="preferredShift" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"></select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">General Availability (Days)</label>
+                                <div id="availabilityCheckboxes" class="mt-2 grid grid-cols-3 sm:grid-cols-4 gap-2"></div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Allowed Shift Types</label>
+                                <div id="allowedShiftsCheckboxes" class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Incompatible Colleagues</label>
+                                <div id="incompatibleColleaguesCheckboxes" class="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
+                            </div>
+                            <div class="flex gap-2 pt-4 border-t">
+                                <button type="submit" class="btn btn-primary w-full">Save Employee</button>
+                                <button type="button" id="clearEmployeeFormBtn" class="btn btn-secondary">Clear</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 border-t rounded-b-xl">
+                <button id="closeEmployeeModalBtn" class="btn btn-secondary float-right">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="shiftModal" class="fixed inset-0 z-50 items-center justify-center hidden">
+        <div class="modal-backdrop fixed inset-0"></div>
+        <div class="modal bg-white rounded-xl shadow-2xl w-11/12 max-w-4xl m-4 relative max-h-[90vh] flex flex-col">
+            <div class="p-6 border-b">
+                <h2 class="text-2xl font-bold">Define Shift Templates</h2>
+            </div>
+            <div class="p-6 flex-grow overflow-y-auto custom-scrollbar">
+                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <h3 class="font-semibold mb-2">Current Shifts</h3>
+                        <ul id="shiftList" class="space-y-2 max-h-96 md:max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar"></ul>
+                    </div>
+                    <div>
+                        <h3 id="shiftFormTitle" class="font-semibold mb-2">Add New Shift</h3>
+                        <form id="shiftForm" class="space-y-4 bg-gray-50 p-4 rounded-lg">
+                            <input type="hidden" id="shiftId">
+                            <div>
+                                <label for="shiftName" class="block text-sm font-medium text-gray-700">Shift Name</label>
+                                <input type="text" id="shiftName" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                            </div>
+                             <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label for="shiftStartTime" class="block text-sm font-medium text-gray-700">Start Time</label>
+                                    <input type="time" id="shiftStartTime" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                                </div>
+                                <div>
+                                    <label for="shiftEndTime" class="block text-sm font-medium text-gray-700">End Time</label>
+                                    <input type="time" id="shiftEndTime" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" required>
+                                </div>
+                            </div>
+                             <div>
+                                <label for="requiredStaff" class="block text-sm font-medium text-gray-700">Required Staff</label>
+                                <input type="number" id="requiredStaff" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm" value="1" min="1">
+                            </div>
+                            <div>
+                                <label for="shiftColor" class="block text-sm font-medium text-gray-700">Color</label>
+                                <input type="color" id="shiftColor" class="mt-1 block w-full h-10 rounded-md border-gray-300 shadow-sm" value="#a0e7e5">
+                            </div>
+                            <div class="flex gap-2">
+                                <button type="submit" class="btn btn-primary w-full">Save Shift</button>
+                                <button type="button" id="clearShiftFormBtn" class="btn btn-secondary">Clear</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+            <div class="p-4 bg-gray-50 border-t rounded-b-xl">
+                <button id="closeShiftModalBtn" class="btn btn-secondary float-right">Close</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="assignModal" class="fixed inset-0 z-50 items-center justify-center hidden">
+        <div class="modal-backdrop fixed inset-0"></div>
+        <div class="modal bg-white rounded-xl shadow-2xl w-11/12 max-w-sm m-4 relative">
+            <div class="p-6">
+                <h2 id="assignModalTitle" class="text-xl font-bold mb-4">Assign to Shift</h2>
+                <ul id="assignEmployeeList" class="space-y-2"></ul>
+            </div>
+             <div class="p-4 bg-gray-50 border-t rounded-b-xl">
+                <button id="closeAssignModalBtn" class="btn btn-secondary float-right">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // --- DATA STORE ---
+            let employees = [];
+            let shiftTemplates = [];
+            let currentSchedule = [];
+            const DAYS_OF_WEEK = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'];
+
+            // --- UTILITY FUNCTIONS ---
+            const $ = (selector) => document.querySelector(selector);
+            const $$ = (selector) => document.querySelectorAll(selector);
+            const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const timeToMinutes = (timeStr) => {
+                const [hours, minutes] = timeStr.split(':').map(Number);
+                return hours * 60 + minutes;
+            };
+
+            // --- MODAL HANDLING ---
+            const openModal = (modalElement) => {
+                modalElement.classList.remove('hidden');
+                modalElement.classList.add('flex');
+                document.body.classList.add('overflow-hidden');
+            };
+            const closeModal = (modalElement) => {
+                modalElement.classList.add('hidden');
+                modalElement.classList.remove('flex');
+                document.body.classList.remove('overflow-hidden');
+            };
+            
+            // --- CONFIGURATION MANAGEMENT ---
+            const saveConfigBtn = $('#saveConfigBtn');
+            const loadConfigBtn = $('#loadConfigBtn');
+            const configFileIput = $('#configFileInput');
+
+            saveConfigBtn.addEventListener('click', () => {
+                const config = {
+                    employees,
+                    shiftTemplates,
+                    globalSettings: {
+                        maxShiftsPerWeek: $('#maxShiftsPerWeek').value,
+                        minRestHours: $('#minRestHours').value,
+                    }
+                };
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(config, null, 2));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", "schedule_pro_config.json");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            });
+
+            loadConfigBtn.addEventListener('click', () => configFileIput.click());
+
+            configFileIput.addEventListener('change', (event) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const config = JSON.parse(e.target.result);
+                        if (config.employees && config.shiftTemplates && config.globalSettings) {
+                            employees = config.employees;
+                            shiftTemplates = config.shiftTemplates;
+                            $('#maxShiftsPerWeek').value = config.globalSettings.maxShiftsPerWeek;
+                            $('#minRestHours').value = config.globalSettings.minRestHours;
+                            
+                            renderAll();
+                            alert('Configuration loaded successfully!');
+                        } else {
+                            alert('Invalid configuration file.');
+                        }
+                    } catch (error) {
+                        alert('Error parsing configuration file.');
+                        console.error(error);
+                    }
+                };
+                reader.readAsText(event.target.files[0]);
+                configFileIput.value = '';
+            });
+
+            // --- EMPLOYEE MANAGEMENT ---
+            const employeeModal = $('#employeeModal');
+            const employeeForm = $('#employeeForm');
+            const employeeFormTitle = $('#employeeFormTitle');
+            const employeeList = $('#employeeList');
+
+            const renderEmployees = () => {
+                employeeList.innerHTML = employees.length ? employees.map(emp => `
+                    <li class="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm hover:bg-gray-50">
+                        <span class="font-medium">${emp.name}</span>
+                        <div class="flex gap-2">
+                            <button class="text-sm text-blue-600 hover:text-blue-800 font-semibold" data-id="${emp.id}" data-action="edit-employee">Edit</button>
+                            <button class="text-sm text-red-600 hover:text-red-800 font-semibold" data-id="${emp.id}" data-action="delete-employee">Delete</button>
+                        </div>
+                    </li>
+                `).join('') : '<li class="text-gray-500 p-3">No employees yet.</li>';
+                populateIncompatibleColleaguesCheckboxes();
+            };
+
+            const populateAllowedShiftsCheckboxes = () => {
+                const container = $('#allowedShiftsCheckboxes');
+                container.innerHTML = shiftTemplates.length ? shiftTemplates.map(st => `
+                    <label class="flex items-center space-x-2">
+                        <input type="checkbox" class="rounded" value="${st.id}">
+                        <span>${st.name}</span>
+                    </label>
+                `).join('') : '<p class="text-sm text-gray-500">No shifts defined.</p>';
+            };
+
+            const populatePreferredShiftSelect = () => {
+                const select = $('#preferredShift');
+                select.innerHTML = `<option value="">No Preference</option>` + shiftTemplates.map(st => `<option value="${st.id}">${st.name}</option>`).join('');
+            };
+
+            const populateIncompatibleColleaguesCheckboxes = () => {
+                const container = $('#incompatibleColleaguesCheckboxes');
+                const currentEmployeeId = $('#employeeId').value;
+                const otherEmployees = employees.filter(e => e.id !== currentEmployeeId);
+                
+                container.innerHTML = otherEmployees.length ? otherEmployees.map(emp => `
+                    <label class="flex items-center space-x-2">
+                        <input type="checkbox" class="rounded" value="${emp.id}">
+                        <span>${emp.name}</span>
+                    </label>
+                `).join('') : '<p class="text-sm text-gray-500">No other employees to select.</p>';
+            };
+
+            const setupEmployeeForm = (emp = null) => {
+                employeeForm.reset();
+                $('#employeeId').value = emp ? emp.id : '';
+                $('#employeeName').value = emp ? emp.name : '';
+                $('#maxShifts').value = emp?.maxShifts || '';
+                
+                populatePreferredShiftSelect();
+                $('#preferredShift').value = emp ? emp.preferredShiftId : '';
+
+                $$('#availabilityCheckboxes input').forEach(cb => {
+                    cb.checked = emp ? emp.availability.includes(cb.value) : true;
+                });
+                
+                populateAllowedShiftsCheckboxes();
+                $$('#allowedShiftsCheckboxes input').forEach(cb => {
+                    cb.checked = emp ? emp.allowedShiftIds.includes(cb.value) : true;
+                });
+                
+                populateIncompatibleColleaguesCheckboxes();
+                 $$('#incompatibleColleaguesCheckboxes input').forEach(cb => {
+                    cb.checked = emp ? emp.incompatibleWith.includes(cb.value) : false;
+                });
+
+                employeeFormTitle.textContent = emp ? `Edit ${emp.name}` : 'Add New Employee';
+                $('#employeeName').focus();
+            };
+
+            employeeForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const id = $('#employeeId').value;
+                const name = $('#employeeName').value.trim();
+                const maxShifts = parseInt($('#maxShifts').value, 10) || null;
+                const preferredShiftId = $('#preferredShift').value;
+                const availability = Array.from($$('#availabilityCheckboxes input:checked')).map(cb => cb.value);
+                const allowedShiftIds = Array.from($$('#allowedShiftsCheckboxes input:checked')).map(cb => cb.value);
+                const incompatibleWith = Array.from($$('#incompatibleColleaguesCheckboxes input:checked')).map(cb => cb.value);
+
+                if (!name) { alert('Employee name cannot be empty.'); return; }
+
+                if (id) {
+                    const index = employees.findIndex(emp => emp.id === id);
+                    if (index !== -1) {
+                        employees[index] = { ...employees[index], name, maxShifts, preferredShiftId, availability, allowedShiftIds, incompatibleWith };
+                    }
+                } else {
+                    employees.push({ id: generateId(), name, maxShifts, preferredShiftId, availability, allowedShiftIds, incompatibleWith });
+                }
+                renderEmployees();
+                setupEmployeeForm();
+            });
+            
+            $('#clearEmployeeFormBtn').addEventListener('click', () => setupEmployeeForm());
+
+            employeeList.addEventListener('click', (e) => {
+                const { id, action } = e.target.dataset;
+                if (!id) return;
+
+                if (action === 'edit-employee') {
+                    const emp = employees.find(e => e.id === id);
+                    setupEmployeeForm(emp);
+                } else if (action === 'delete-employee') {
+                    if (confirm('Are you sure you want to delete this employee?')) {
+                        employees = employees.filter(e => e.id !== id);
+                        renderEmployees();
+                        setupEmployeeForm();
+                    }
+                }
+            });
+
+            // --- SHIFT MANAGEMENT ---
+            const shiftModal = $('#shiftModal');
+            const shiftForm = $('#shiftForm');
+            const shiftFormTitle = $('#shiftFormTitle');
+            const shiftList = $('#shiftList');
+
+            const renderShifts = () => {
+                shiftList.innerHTML = shiftTemplates.length ? shiftTemplates.map(st => `
+                    <li class="flex items-center justify-between p-3 bg-white rounded-lg shadow-sm hover:bg-gray-50">
+                        <div class="flex items-center gap-3">
+                           <div class="w-5 h-5 rounded-full border-2 border-white shadow-md" style="background-color: ${st.color};"></div>
+                           <span class="font-medium">${st.name} (${st.startTime}-${st.endTime}, ${st.requiredStaff} staff)</span>
+                        </div>
+                        <div class="flex gap-2">
+                            <button class="text-sm text-blue-600 hover:text-blue-800 font-semibold" data-id="${st.id}" data-action="edit-shift">Edit</button>
+                            <button class="text-sm text-red-600 hover:text-red-800 font-semibold" data-id="${st.id}" data-action="delete-shift">Delete</button>
+                        </div>
+                    </li>
+                `).join('') : '<li class="text-gray-500 p-3">No shifts defined yet.</li>';
+                populateAllowedShiftsCheckboxes();
+                populatePreferredShiftSelect();
+            };
+
+            const setupShiftForm = (st = null) => {
+                shiftForm.reset();
+                $('#shiftId').value = st ? st.id : '';
+                $('#shiftName').value = st ? st.name : '';
+                $('#shiftStartTime').value = st ? st.startTime : '09:00';
+                $('#shiftEndTime').value = st ? st.endTime : '17:00';
+                $('#requiredStaff').value = st ? st.requiredStaff : '1';
+                $('#shiftColor').value = st ? st.color : '#a0e7e5';
+                shiftFormTitle.textContent = st ? 'Edit Shift' : 'Add New Shift';
+            };
+
+            shiftForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                const id = $('#shiftId').value;
+                const name = $('#shiftName').value.trim();
+                const startTime = $('#shiftStartTime').value;
+                const endTime = $('#shiftEndTime').value;
+                const requiredStaff = parseInt($('#requiredStaff').value, 10);
+                const color = $('#shiftColor').value;
+
+                if (!name || !startTime || !endTime || requiredStaff < 1) { alert('Please fill out all shift details correctly.'); return; }
+
+                if (id) {
+                    const index = shiftTemplates.findIndex(st => st.id === id);
+                    if (index !== -1) {
+                        shiftTemplates[index] = { ...shiftTemplates[index], name, startTime, endTime, requiredStaff, color };
+                    }
+                } else {
+                    shiftTemplates.push({ id: generateId(), name, startTime, endTime, requiredStaff, color });
+                }
+                renderShifts();
+                setupShiftForm();
+            });
+            
+            $('#clearShiftFormBtn').addEventListener('click', () => setupShiftForm());
+
+            shiftList.addEventListener('click', (e) => {
+                const { id, action } = e.target.dataset;
+                if (!id) return;
+
+                if (action === 'edit-shift') {
+                    const st = shiftTemplates.find(s => s.id === id);
+                    setupShiftForm(st);
+                } else if (action === 'delete-shift') {
+                    if (confirm('Are you sure you want to delete this shift?')) {
+                        shiftTemplates = shiftTemplates.filter(s => s.id !== id);
+                        renderShifts();
+                        setupShiftForm();
+                    }
+                }
+            });
+
+            // --- SCHEDULING LOGIC & DISPLAY ---
+            const logArea = $('#logArea');
+            const employeeOverview = $('#employeeOverview');
+
+            const displaySchedule = () => {
+                const scheduleHeader = $('#schedule-header');
+                const scheduleBody = $('#schedule-body');
+                scheduleHeader.innerHTML = `<tr><th class="p-3 text-left text-sm font-semibold tracking-wider">Time</th>${DAYS_OF_WEEK.map(day => `<th class="p-3 text-sm font-semibold tracking-wider">${day.substring(0,3)}</th>`).join('')}</tr>`;
+                
+                const sortedTemplates = [...shiftTemplates].sort((a, b) => a.startTime.localeCompare(b.startTime));
+                
+                scheduleBody.innerHTML = sortedTemplates.map(template => {
+                    let rowHtml = `<tr class="bg-white"><td class="p-3 font-medium text-gray-900 whitespace-nowrap">${template.startTime} - ${template.endTime}</td>`;
+                    DAYS_OF_WEEK.forEach((day, dayIndex) => {
+                        const shiftsInCell = currentSchedule.filter(s => s.day === day && s.template.id === template.id);
+                        const assignedEmployees = shiftsInCell.map(s => s.assignedEmployee).filter(Boolean);
+                        
+                        let cellContent = '';
+                        if (assignedEmployees.length > 0) {
+                            cellContent = assignedEmployees.map(emp => `
+                                <div class="draggable-employee relative group bg-white/50 p-1 my-1 rounded-md shadow" draggable="true" data-employee-id="${emp.id}" data-source-slot-id="${shiftsInCell.find(s => s.assignedEmployee?.id === emp.id).slotId}">
+                                    <span class="font-bold">${emp.name}</span>
+                                    <button class="absolute top-0 right-1 text-red-500 opacity-0 group-hover:opacity-100 transition-opacity" data-action="remove-from-shift" data-slot-id="${shiftsInCell.find(s => s.assignedEmployee?.id === emp.id).slotId}">&times;</button>
+                                </div>`).join('');
+                        }
+                        
+                        const unfilledSlots = template.requiredStaff - assignedEmployees.length;
+                        if (unfilledSlots > 0) {
+                             cellContent += Array(unfilledSlots).fill(`<div class="unfilled-slot text-red-600 font-semibold p-1 my-1" data-day="${day}" data-template-id="${template.id}">UNFILLED</div>`).join('');
+                        }
+
+                        let bgColor = assignedEmployees.length > 0 ? template.color : '#fef2f2';
+                        if (unfilledSlots > 0 && assignedEmployees.length > 0) {
+                            bgColor = `linear-gradient(to bottom, ${template.color} ${100 - (unfilledSlots/template.requiredStaff)*100}%, #fecaca ${100 - (unfilledSlots/template.requiredStaff)*100}%)`;
+                        } else if (unfilledSlots > 0) {
+                             bgColor = '#fecaca';
+                        }
+
+                        rowHtml += `<td style="background: ${bgColor}; vertical-align: top;" data-day="${day}" data-template-id="${template.id}"><div class="table-cell-content">${cellContent}</div></td>`;
+                    });
+                    rowHtml += '</tr>';
+                    return rowHtml;
+                }).join('');
+            };
+
+            const renderEmployeeOverview = () => {
+                if (!currentSchedule || currentSchedule.length === 0) {
+                    employeeOverview.innerHTML = `<li class="text-gray-500">Generate a schedule to see the overview.</li>`;
+                    return;
+                }
+                const counts = employees.map(emp => {
+                    const shiftCount = currentSchedule.filter(s => s.assignedEmployee?.id === emp.id).length;
+                    return { name: emp.name, count: shiftCount };
+                });
+
+                employeeOverview.innerHTML = counts.map(item => `
+                    <li class="flex justify-between items-center bg-gray-50 p-2 rounded-md">
+                        <span class="font-medium text-gray-800">${item.name}</span>
+                        <span class="font-bold text-blue-600 bg-blue-100 px-2 py-1 rounded-full text-sm">${item.count} shifts</span>
+                    </li>
+                `).join('');
+            };
+
+            const getIneligibilityReason = (emp, targetSlot, schedule, globalMaxShifts, minRest) => {
+                if (!emp.availability.includes(targetSlot.day)) return `Not available on ${targetSlot.day}`;
+                if (!emp.allowedShiftIds.includes(targetSlot.template.id)) return `Not allowed to work ${targetSlot.template.name}`;
+                
+                const maxShifts = emp.maxShifts || globalMaxShifts;
+                const currentShiftCount = schedule.filter(s => s.assignedEmployee?.id === emp.id).length;
+                if (currentShiftCount >= maxShifts) return `At max shifts (${maxShifts})`;
+
+                if (schedule.some(s => s.assignedEmployee?.id === emp.id && s.day === targetSlot.day)) return `Already working on ${targetSlot.day}`;
+                
+                const colleaguesOnShift = schedule.filter(s => s.day === targetSlot.day && s.template.id === targetSlot.template.id && s.assignedEmployee).map(s => s.assignedEmployee.id);
+                const incompatibleMatch = employees.find(e => emp.incompatibleWith.includes(e.id) && colleaguesOnShift.includes(e.id));
+                if (incompatibleMatch) return `Incompatible with ${incompatibleMatch.name}`;
+                
+                const dayIndex = DAYS_OF_WEEK.indexOf(targetSlot.day);
+                const prevDay = DAYS_OF_WEEK[dayIndex - 1];
+                if (prevDay) {
+                    const prevDayShifts = schedule.filter(s => s.assignedEmployee?.id === emp.id && s.day === prevDay);
+                    for (const prevShift of prevDayShifts) {
+                        const prevEndTime = timeToMinutes(prevShift.template.endTime);
+                        const currentStartTime = timeToMinutes(targetSlot.template.startTime);
+                        const rest = (24 * 60 - prevEndTime) + currentStartTime;
+                        if (rest < minRest * 60) return `Not enough rest after ${prevDay}'s shift`;
+                    }
+                }
+
+                return null; // Is eligible
+            };
+
+            const isEligible = (emp, targetSlot, schedule, globalMaxShifts, minRest) => {
+                return getIneligibilityReason(emp, targetSlot, schedule, globalMaxShifts, minRest) === null;
+            };
+
+            $('#generateScheduleBtn').addEventListener('click', () => {
+                if (employees.length === 0 || shiftTemplates.length === 0) {
+                    alert('Please add employees and define shifts before generating a schedule.');
+                    return;
+                }
+
+                logArea.textContent = 'Generating schedule...';
+                
+                const globalMaxShifts = parseInt($('#maxShiftsPerWeek').value, 10);
+                const minRestHours = parseInt($('#minRestHours').value, 10);
+                
+                currentSchedule = [];
+                DAYS_OF_WEEK.forEach(day => {
+                    shiftTemplates.forEach(template => {
+                        for (let i = 0; i < template.requiredStaff; i++) {
+                            currentSchedule.push({ slotId: generateId(), day, template, assignedEmployee: null });
+                        }
+                    });
+                });
+
+                const shiftsPerEmployee = employees.reduce((acc, emp) => ({ ...acc, [emp.id]: 0 }), {});
+
+                const assignEmployeeToSlot = (emp, slot, schedule, counts) => {
+                    if (isEligible(emp, slot, schedule, globalMaxShifts, minRestHours)) {
+                        slot.assignedEmployee = emp;
+                        counts[emp.id]++;
+                        return true;
+                    }
+                    return false;
+                }
+
+                const shuffledEmployees = [...employees].sort(() => Math.random() - 0.5);
+                currentSchedule.filter(s => s.assignedEmployee === null).forEach(slot => {
+                    if (slot.assignedEmployee) return;
+
+                    // Pass 1: Try preferred employees
+                    const preferredCandidates = shuffledEmployees.filter(e => e.preferredShiftId === slot.template.id);
+                    for (const emp of preferredCandidates) {
+                        if (assignEmployeeToSlot(emp, slot, currentSchedule, shiftsPerEmployee)) return;
+                    }
+
+                    // Pass 2: Try any other employee
+                    const otherCandidates = shuffledEmployees.filter(e => e.preferredShiftId !== slot.template.id).sort((a,b) => shiftsPerEmployee[a.id] - shiftsPerEmployee[b.id]);
+                    for (const emp of otherCandidates) {
+                        if (assignEmployeeToSlot(emp, slot, currentSchedule, shiftsPerEmployee)) return;
+                    }
+                });
+                
+                let logContent = '';
+                const unfilledSlots = currentSchedule.filter(s => !s.assignedEmployee);
+                if (unfilledSlots.length > 0) {
+                    logContent += 'Schedule generated with warnings.\nCould not fill the following shifts:\n';
+                    const unfilledGroups = {};
+                    unfilledSlots.forEach(s => {
+                        const key = `${s.day} - ${s.template.name}`;
+                        unfilledGroups[key] = (unfilledGroups[key] || 0) + 1;
+                    });
+
+                    for (const key in unfilledGroups) {
+                        const [day, templateName] = key.split(' - ');
+                        const template = shiftTemplates.find(t => t.name === templateName);
+                        const slot = { day, template };
+                        logContent += `\n* ${key} (${unfilledGroups[key]} slots):\n`;
+                        employees.forEach(emp => {
+                            const reason = getIneligibilityReason(emp, slot, currentSchedule, globalMaxShifts, minRestHours);
+                            if (reason) {
+                                logContent += `  - ${emp.name}: ${reason}\n`;
+                            } else {
+                                logContent += `  - ${emp.name}: Eligible but not selected (check other assignments)\n`;
+                            }
+                        });
+                    }
+                    logArea.style.color = '#f87171';
+                } else {
+                    logContent = 'Schedule generated successfully! All shifts filled.';
+                    logArea.style.color = '#4ade80';
+                }
+                
+                logArea.textContent = logContent;
+                displaySchedule();
+                renderEmployeeOverview();
+            });
+
+            // --- DRAG & DROP AND INTERACTIVITY ---
+            const scheduleBody = $('#schedule-body');
+            let draggedEmployeeId = null;
+            let sourceSlotId = null;
+
+            scheduleBody.addEventListener('dragstart', e => {
+                if (e.target.classList.contains('draggable-employee')) {
+                    draggedEmployeeId = e.target.dataset.employeeId;
+                    sourceSlotId = e.target.dataset.sourceSlotId;
+                    e.target.classList.add('dragging');
+                }
+            });
+
+            scheduleBody.addEventListener('dragend', e => {
+                if (e.target.classList.contains('draggable-employee')) {
+                    e.target.classList.remove('dragging');
+                }
+                draggedEmployeeId = null;
+                sourceSlotId = null;
+            });
+
+            scheduleBody.addEventListener('dragover', e => {
+                e.preventDefault();
+                const targetCell = e.target.closest('td');
+                if (!targetCell || !draggedEmployeeId) return;
+
+                const day = targetCell.dataset.day;
+                const templateId = targetCell.dataset.templateId;
+                if (!day || !templateId) return;
+
+                const employee = employees.find(emp => emp.id === draggedEmployeeId);
+                const tempTargetSlot = { day, template: shiftTemplates.find(t => t.id === templateId) };
+                
+                const tempSchedule = currentSchedule.map(s => s.slotId === sourceSlotId ? {...s, assignedEmployee: null} : s);
+                const globalMaxShifts = parseInt($('#maxShiftsPerWeek').value, 10);
+                const minRest = parseInt($('#minRestHours').value, 10);
+
+                if (isEligible(employee, tempTargetSlot, tempSchedule, globalMaxShifts, minRest)) {
+                    targetCell.classList.add('drag-over-valid');
+                    targetCell.classList.remove('drag-over-invalid');
+                } else {
+                    targetCell.classList.add('drag-over-invalid');
+                    targetCell.classList.remove('drag-over-valid');
+                }
+            });
+
+            scheduleBody.addEventListener('dragleave', e => {
+                const targetCell = e.target.closest('td');
+                if (targetCell) {
+                    targetCell.classList.remove('drag-over-valid', 'drag-over-invalid');
+                }
+            });
+
+            scheduleBody.addEventListener('drop', e => {
+                e.preventDefault();
+                const targetCell = e.target.closest('td');
+                if (!targetCell || !draggedEmployeeId) return;
+                
+                targetCell.classList.remove('drag-over-valid', 'drag-over-invalid');
+
+                const day = targetCell.dataset.day;
+                const templateId = targetCell.dataset.templateId;
+
+                const targetEmptySlot = currentSchedule.find(s => s.day === day && s.template.id === templateId && !s.assignedEmployee);
+                if (!targetEmptySlot) {
+                    alert('This shift is already full.');
+                    return;
+                }
+                
+                const employeeToMove = employees.find(emp => emp.id === draggedEmployeeId);
+                const sourceSlot = currentSchedule.find(s => s.slotId === sourceSlotId);
+                
+                const tempSchedule = currentSchedule.map(s => s.slotId === sourceSlotId ? {...s, assignedEmployee: null} : s);
+                const globalMaxShifts = parseInt($('#maxShiftsPerWeek').value, 10);
+                const minRest = parseInt($('#minRestHours').value, 10);
+
+                if (isEligible(employeeToMove, targetEmptySlot, tempSchedule, globalMaxShifts, minRest)) {
+                    targetEmptySlot.assignedEmployee = employeeToMove;
+                    if(sourceSlot) sourceSlot.assignedEmployee = null;
+                    
+                    displaySchedule();
+                    renderEmployeeOverview();
+                } else {
+                    alert('This move is not allowed due to scheduling conflicts.');
+                }
+            });
+
+            scheduleBody.addEventListener('click', e => {
+                const target = e.target;
+                if (target.dataset.action === 'remove-from-shift') {
+                    const slotIdToRemove = target.dataset.slotId;
+                    const slot = currentSchedule.find(s => s.slotId === slotIdToRemove);
+                    if (slot) {
+                        slot.assignedEmployee = null;
+                        displaySchedule();
+                        renderEmployeeOverview();
+                    }
+                } else if (target.classList.contains('unfilled-slot')) {
+                    const day = target.dataset.day;
+                    const templateId = target.dataset.templateId;
+                    const template = shiftTemplates.find(t => t.id === templateId);
+                    const targetSlot = currentSchedule.find(s => s.day === day && s.template.id === templateId && !s.assignedEmployee);
+                    
+                    if (targetSlot) {
+                        openAssignModal(targetSlot);
+                    }
+                }
+            });
+            
+            // --- AI SCHEDULING ---
+            $('#aiGenerateScheduleBtn').addEventListener('click', async () => {
+                const apiKey = $('#apiKey').value.trim();
+                if (!apiKey) {
+                    alert('Please enter your Google Gemini API key.');
+                    return;
+                }
+
+                logArea.textContent = 'Gathering data and building prompt for Gemini...';
+
+                const prompt = buildAIPrompt();
+                logArea.textContent = 'Sending request to Gemini 1.5 Pro...';
+
+                try {
+                    const response = await callGeminiAPI(prompt, apiKey);
+                    logArea.textContent = 'Received response. Parsing schedule...';
+                    parseAIResponse(response);
+                    displaySchedule();
+                    renderEmployeeOverview();
+                    logArea.style.color = '#4ade80';
+                    logArea.textContent = 'AI-generated schedule has been successfully applied!';
+                } catch (error) {
+                    logArea.style.color = '#f87171';
+                    logArea.textContent = `Error during AI generation: ${error.message}`;
+                    console.error(error);
+                }
+            });
+
+            const buildAIPrompt = () => {
+                const globalRules = {
+                    defaultMaxShiftsPerWeek: parseInt($('#maxShiftsPerWeek').value, 10),
+                    minRestHoursBetweenShifts: parseInt($('#minRestHours').value, 10),
+                };
+
+                const simplifiedEmployees = employees.map(emp => ({
+                    id: emp.id,
+                    name: emp.name,
+                    maxShifts: emp.maxShifts,
+                    preferredShiftId: emp.preferredShiftId,
+                    availableDays: emp.availability,
+                    allowedShiftIds: emp.allowedShiftIds,
+                    incompatibleWithIds: emp.incompatibleWith,
+                }));
+
+                const simplifiedShifts = shiftTemplates.map(st => ({
+                    id: st.id,
+                    name: st.name,
+                    startTime: st.startTime,
+                    endTime: st.endTime,
+                    requiredStaff: st.requiredStaff,
+                }));
+
+                return `
+                    You are an expert scheduler. Your task is to create an optimal weekly employee schedule based on a set of rules, shifts, and employee constraints.
+
+                    **Output Format:**
+                    You MUST provide the response as a valid JSON array of assignment objects. Each object must have three properties: "day", "shiftId", and "employeeId". Do not include any other text, explanations, or markdown formatting in your response.
+
+                    Example of a valid output format:
+                    [
+                        {"day": "MONDAY", "shiftId": "id_shift_1", "employeeId": "id_emp_2"},
+                        {"day": "MONDAY", "shiftId": "id_shift_1", "employeeId": "id_emp_4"},
+                        {"day": "TUESDAY", "shiftId": "id_shift_2", "employeeId": "id_emp_1"}
+                    ]
+
+                    **Scheduling Data:**
+
+                    **1. Global Rules:**
+                    ${JSON.stringify(globalRules, null, 2)}
+
+                    **2. Shift Templates (The shifts that need to be filled):**
+                    ${JSON.stringify(simplifiedShifts, null, 2)}
+
+                    **3. Employees (The people available to work):**
+                    ${JSON.stringify(simplifiedEmployees, null, 2)}
+
+                    **Core Task:**
+                    Create a weekly schedule for all 7 days (MONDAY to SUNDAY). Fill the required number of staff for each shift on each day. You must adhere to all global and individual employee rules. The primary goal is to fill as many shifts as possible while respecting all constraints.
+
+                    **Constraints to Follow Strictly:**
+                    - An employee can only work one shift per day.
+                    - An employee cannot work more than their specified maxShifts per week (use the global default if their specific value is null).
+                    - An employee must be available on the day of the shift.
+                    - An employee must be allowed to work the specific shift type.
+                    - An employee cannot be scheduled at the same time as an incompatible colleague.
+                    - The "minRestHoursBetweenShifts" rule must be respected.
+                    - Try to assign employees to their preferred shift if possible, but filling all shifts is the top priority.
+
+                    Now, generate the schedule as a JSON array.
+                `;
+            };
+
+            const callGeminiAPI = async (prompt, apiKey) => {
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key=${apiKey}`;
+                
+                const payload = {
+                    contents: [{
+                        parts: [{ text: prompt }]
+                    }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                    }
+                };
+
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.json();
+                    throw new Error(`API Error: ${errorBody.error.message}`);
+                }
+
+                const data = await response.json();
+                return data.candidates[0].content.parts[0].text;
+            };
+
+            const parseAIResponse = (responseText) => {
+                let assignments;
+                try {
+                    assignments = JSON.parse(responseText);
+                } catch (e) {
+                    throw new Error("AI returned invalid JSON. Could not parse the schedule.");
+                }
+
+                currentSchedule.forEach(slot => slot.assignedEmployee = null);
+
+                assignments.forEach(assignment => {
+                    const { day, shiftId, employeeId } = assignment;
+                    const employee = employees.find(e => e.id === employeeId);
+                    
+                    const targetSlot = currentSchedule.find(slot => 
+                        !slot.assignedEmployee &&
+                        slot.day === day &&
+                        slot.template.id === shiftId
+                    );
+
+                    if (targetSlot && employee) {
+                        targetSlot.assignedEmployee = employee;
+                    }
+                });
+            };
+            
+            // --- ASSIGN MODAL ---
+            const assignModal = $('#assignModal');
+            const assignEmployeeList = $('#assignEmployeeList');
+            let currentAssignSlot = null;
+
+            const openAssignModal = (slot) => {
+                currentAssignSlot = slot;
+                $('#assignModalTitle').textContent = `Assign to ${slot.template.name} on ${slot.day}`;
+                
+                const globalMaxShifts = parseInt($('#maxShiftsPerWeek').value, 10);
+                const minRest = parseInt($('#minRestHours').value, 10);
+
+                const eligibleEmployees = employees.filter(emp => isEligible(emp, slot, currentSchedule, globalMaxShifts, minRest));
+
+                if (eligibleEmployees.length > 0) {
+                    assignEmployeeList.innerHTML = eligibleEmployees.map(emp => `
+                        <li>
+                            <button class="w-full text-left p-2 rounded-md hover:bg-gray-100" data-employee-id="${emp.id}">
+                                ${emp.name}
+                            </button>
+                        </li>
+                    `).join('');
+                } else {
+                    assignEmployeeList.innerHTML = `<li class="text-gray-500">No eligible employees found.</li>`;
+                }
+                openModal(assignModal);
+            };
+
+            assignEmployeeList.addEventListener('click', e => {
+                const button = e.target.closest('button');
+                if (button && currentAssignSlot) {
+                    const employeeId = button.dataset.employeeId;
+                    const employee = employees.find(e => e.id === employeeId);
+                    if (employee) {
+                        currentAssignSlot.assignedEmployee = employee;
+                        displaySchedule();
+                        renderEmployeeOverview();
+                    }
+                    closeModal(assignModal);
+                }
+            });
+
+            // --- INITIALIZATION ---
+            const renderAll = () => {
+                renderEmployees();
+                renderShifts();
+                displaySchedule();
+                renderEmployeeOverview();
+            }
+
+            const init = () => {
+                const availabilityContainer = $('#availabilityCheckboxes');
+                availabilityContainer.innerHTML = DAYS_OF_WEEK.map(day => `<label class="flex items-center space-x-2"><input type="checkbox" class="rounded" value="${day}"><span>${day.charAt(0) + day.slice(1).toLowerCase()}</span></label>`).join('');
+
+                const sampleShift1 = { id: generateId(), name: 'Morning', startTime: '08:00', endTime: '16:00', color: '#a0e7e5', requiredStaff: 2 };
+                const sampleShift2 = { id: generateId(), name: 'Evening', startTime: '16:00', endTime: '23:00', color: '#fdd7ac', requiredStaff: 1 };
+                const sampleShift3 = { id: generateId(), name: 'Night', startTime: '23:00', endTime: '08:00', color: '#e5b0e5', requiredStaff: 1 };
+                shiftTemplates = [sampleShift1, sampleShift2, sampleShift3];
+                
+                const emp1 = { id: generateId(), name: 'Alice', availability: ['MONDAY', 'TUESDAY', 'WEDNESDAY'], allowedShiftIds: [sampleShift1.id], incompatibleWith: [], preferredShiftId: sampleShift1.id, maxShifts: 3 };
+                const emp2 = { id: generateId(), name: 'Bob', availability: ['WEDNESDAY', 'THURSDAY', 'FRIDAY'], allowedShiftIds: [sampleShift1.id, sampleShift2.id], incompatibleWith: [], preferredShiftId: '', maxShifts: null };
+                const emp3 = { id: generateId(), name: 'Charlie', availability: ['FRIDAY', 'SATURDAY', 'SUNDAY'], allowedShiftIds: [sampleShift2.id, sampleShift3.id], incompatibleWith: [], preferredShiftId: sampleShift2.id, maxShifts: null };
+                const emp4 = { id: generateId(), name: 'Diana', availability: DAYS_OF_WEEK, allowedShiftIds: [sampleShift1.id, sampleShift2.id, sampleShift3.id], incompatibleWith: [], preferredShiftId: '', maxShifts: 5 };
+                employees = [emp1, emp2, emp3, emp4];
+
+                renderAll();
+
+                $('#manageEmployeesBtn').addEventListener('click', () => { setupEmployeeForm(); openModal(employeeModal); });
+                $('#closeEmployeeModalBtn').addEventListener('click', () => closeModal(employeeModal));
+                $('#defineShiftsBtn').addEventListener('click', () => { setupShiftForm(); openModal(shiftModal); });
+                $('#closeShiftModalBtn').addEventListener('click', () => closeModal(shiftModal));
+                $('#closeAssignModalBtn').addEventListener('click', () => closeModal(assignModal));
+                
+                $('#clearScheduleBtn').addEventListener('click', () => {
+                    if (confirm('Are you sure you want to clear the entire schedule?')) {
+                        currentSchedule.forEach(slot => slot.assignedEmployee = null);
+                        displaySchedule();
+                        renderEmployeeOverview();
+                        logArea.textContent = 'Schedule cleared.';
+                    }
+                });
+                
+                $$('.modal-backdrop').forEach(backdrop => backdrop.addEventListener('click', (e) => closeModal(e.target.closest('.fixed'))));
+            };
+
+            init();
+        });
+    </script>
+</body>
+</html>
